@@ -567,18 +567,38 @@ impl Compiler {
             OperationKind::Args => {
                 self.out_file.write(
                     b"{
-    Array *arr = (Array *)malloc(sizeof(Array));
-    arr->offset = 0;
-    arr->length = argc;
-    Value *data;
-    data = (Value *)calloc(argc, sizeof(Value));
-    for (int i = 0; i < argc; i++)
-    {
-        data[i] = (Value){5, argv[i]};
-    }
-    arr->data = data;
-    push((Value){3, (int)arr});
-}\n",
+                        Array *arr = (Array *)malloc(sizeof(Array));
+                        arr->offset = 0;
+                        arr->length = argc;
+                        Value *data;
+                        data = (Value *)calloc(argc, sizeof(Value));
+                        for (int i = 0; i < argc; i++)
+                        {
+                            data[i] = (Value){5, argv[i]};
+                        }
+                        arr->data = data;
+                        push((Value){3, (int)arr});
+                    }\n",
+                )?;
+            }
+            OperationKind::Cons => {
+                
+                self.out_file.write(
+                    b"{
+                        Value a = pop();
+                        Value b = pop();
+                        Array *arr = (Array *)malloc(sizeof(Array));
+                        arr->offset = 0;
+                        arr->length = 2;
+                        Value *data;
+                        data = (Value *)calloc(2, sizeof(Value));
+                        
+                        data[0] = b;
+                        data[1] = a;
+
+                        arr->data = data;
+                        push((Value){3, (int)arr});
+                    }\n",
                 )?;
             }
             _ => todo!("{:?}", op),
