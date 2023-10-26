@@ -1,0 +1,5 @@
+let fopen 
+
+"out.txt" &fo
+    "Hello from Loquat!" &fw
+&fc

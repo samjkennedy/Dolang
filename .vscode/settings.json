@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "*.ren": "ren",
+        "*.cb": "rust",
+        "*.do": "porth",
+        "*.vs": "rust",
+        "*.phs": "plaintext",
+        "*.tyr": "odin",
+        "*.sl8": "rust",
+        "*.lum": "zig",
+        "stdint.h": "c",
+        "stdbool.h": "c",
+        "string.h": "c"
+    }
+}

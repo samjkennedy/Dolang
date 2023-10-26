@@ -1,0 +1,4 @@
+let puti int -> (print)
+
+[1 2 3]
+    (puti) foreach

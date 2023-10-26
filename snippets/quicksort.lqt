@@ -1,0 +1,19 @@
+let small? int array -> bool (
+    dup len 0 =
+    swap
+    len 1 =
+    or
+)
+let head int array -> int (
+    0 pick
+)
+let tail int array -> int array (
+    dup len 1 swap slice
+)
+let uncons int array -> int int array (
+    0 pick swap
+    tail
+)
+
+[2 3 1 4 5]
+    uncons print print

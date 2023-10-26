@@ -1,0 +1,5 @@
+let sout <a> a -> (
+    print
+)
+
+5 sout
