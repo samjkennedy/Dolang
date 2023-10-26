@@ -675,8 +675,8 @@ impl Interpreter {
                     panic!("Expected seq but got {}", false_branch);
                 }
             }
-            
-            OperationKind::Return => {
+
+            OperationKind::Return | OperationKind::Args => {
                 todo!();
             }
         }

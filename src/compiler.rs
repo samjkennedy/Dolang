@@ -30,6 +30,7 @@ impl Compiler {
         self.out_file.write(b"#include <stdint.h>\n").unwrap();
         self.out_file.write(b"#include <stdlib.h>\n").unwrap();
         self.out_file.write(b"#include <stdbool.h>\n").unwrap();
+        self.out_file.write(b"#include <string.h>\n").unwrap();
         self.out_file.write(b"\n").unwrap();
 
         //Define types
@@ -86,6 +87,10 @@ impl Compiler {
         self.out_file.write(b"case 3:\n")?;
         self.out_file.write(b"printArray(arrayData[i]);\n")?;
         self.out_file.write(b"break;\n")?;
+        self.out_file.write(b"case 5:\n")?;
+        self.out_file
+            .write(b"printf(\"%s\", arrayData[i].value);\n")?;
+        self.out_file.write(b"break;\n")?;
         self.out_file.write(b"default:\n")?;
         self.out_file
             .write(b"      printf(\"%s\\n\", \"unhandled datatype\");\n")?;
@@ -115,6 +120,9 @@ impl Compiler {
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    case 3:\n")?;
         self.out_file.write(b"      printArray(v);\n")?;
+        self.out_file.write(b"      break;\n")?;
+        self.out_file.write(b"    case 5:\n")?;
+        self.out_file.write(b"      printf(\"%s\\n\", v.value);\n")?;
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    default:\n")?;
         self.out_file
@@ -517,10 +525,10 @@ impl Compiler {
                 self.out_file.write(b"    Value array = pop();\n")?;
                 self.out_file
                     .write(b"    Array arrayValue = *(Array *)array.value;\n")?;
-                self.out_file
-                    .write(b"        push(array);\n")?;
-                self.out_file
-                    .write(b"        push((Value)  { 1, arrayValue.length - arrayValue.offset });\n")?;
+                self.out_file.write(b"        push(array);\n")?;
+                self.out_file.write(
+                    b"        push((Value)  { 1, arrayValue.length - arrayValue.offset });\n",
+                )?;
                 self.out_file.write(b"    }\n")?;
             }
             OperationKind::Pick => {
@@ -531,10 +539,8 @@ impl Compiler {
                     .write(b"    Array arrayValue = *(Array *)array.value;\n")?;
                 self.out_file
                     .write(b"    Value el = arrayValue.data[index.value];\n")?;
-                self.out_file
-                    .write(b"        push(array);\n")?;
-                self.out_file
-                    .write(b"        push(el);\n")?;
+                self.out_file.write(b"        push(array);\n")?;
+                self.out_file.write(b"        push(el);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
             OperationKind::Slice => {
@@ -544,11 +550,12 @@ impl Compiler {
                 self.out_file.write(b"    Value array = pop();\n")?;
                 self.out_file
                     .write(b"    Array *arrayValue = (Array *)array.value;\n")?;
-                
-                self.out_file.write(b"   arrayValue->offset = lower.value;\n")?;
-                self.out_file.write(b"   arrayValue->length = upper.value;\n")?;
+
                 self.out_file
-                    .write(b"        push(array);\n")?;
+                    .write(b"   arrayValue->offset = lower.value;\n")?;
+                self.out_file
+                    .write(b"   arrayValue->length = upper.value;\n")?;
+                self.out_file.write(b"        push(array);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
             OperationKind::If => {
@@ -556,6 +563,23 @@ impl Compiler {
             }
             OperationKind::Return => {
                 self.out_file.write(b"    return;\n")?;
+            }
+            OperationKind::Args => {
+                self.out_file.write(
+                    b"{
+    Array *arr = (Array *)malloc(sizeof(Array));
+    arr->offset = 0;
+    arr->length = argc;
+    Value *data;
+    data = (Value *)calloc(argc, sizeof(Value));
+    for (int i = 0; i < argc; i++)
+    {
+        data[i] = (Value){5, argv[i]};
+    }
+    arr->data = data;
+    push((Value){3, (int)arr});
+}\n",
+                )?;
             }
             _ => todo!("{:?}", op),
         }
@@ -605,7 +629,9 @@ impl Compiler {
                     lambda
                 )?;
             }
-            Operand::String { value } => todo!(),
+            Operand::String { value } => {
+                write!(self.out_file, "push((Value){{5, \"{}\"}});\n", value)?
+            }
         }
         Ok(())
     }
@@ -653,7 +679,11 @@ impl Compiler {
         if let Operand::Seq { ops } = &function.body {
             self.predefine_lambdas(ops)?;
 
-            write!(self.out_file, "void {}() {{\n", function.name)?;
+            if function.name == "main" {
+                write!(self.out_file, "void main(int argc, char *argv[]) {{\n")?;
+            } else {
+                write!(self.out_file, "void {}() {{\n", function.name)?;
+            }
             for op in ops {
                 self.emit(&op)?;
             }
