@@ -49,6 +49,7 @@ pub enum TokenKind {
     IfKeyword,
     ReturnKeyword,
     Arrow,
+    ArgsKeyword,
     Whitespace,
     EOF,
 }
@@ -206,6 +207,7 @@ impl Lexer {
                     "let" => TokenKind::LetKeyword,
                     "if" => TokenKind::IfKeyword,
                     "return" => TokenKind::ReturnKeyword,
+                    "args" => TokenKind::ArgsKeyword,
                     _ => TokenKind::Identifier { text: text.clone() },
                 };
 

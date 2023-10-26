@@ -1095,9 +1095,22 @@ impl TypeChecker {
                         )),
                     });
                 }
-            },
+            }
             OperationKind::Return => {
                 todo!(); //need to know function context
+            }
+            OperationKind::Args => {
+                //TODO: This should fail if outside the main function, need to know function context
+                self.type_stack.push(TypeToken {
+                    kind: TypeKind::Array {
+                        el_type: Box::new(TypeKind::Array {
+                            el_type: Box::new(TypeKind::Char),
+                        }),
+                    },
+                    introduced_at: op.loc.clone(),
+                });
+
+                Ok(())
             }
         }
     }
