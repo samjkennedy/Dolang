@@ -61,6 +61,7 @@ pub enum OperationKind {
     Split,
     If,
     Return,
+    Args,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -337,6 +338,10 @@ impl Parser {
             }),
             TokenKind::ReturnKeyword => Ok(Operation {
                 kind: OperationKind::Return,
+                loc: next.loc.clone(),
+            }),
+            TokenKind::ArgsKeyword => Ok(Operation {
+                kind: OperationKind::Args,
                 loc: next.loc.clone(),
             }),
             TokenKind::CloseSquare
