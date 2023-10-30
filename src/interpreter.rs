@@ -676,7 +676,7 @@ impl Interpreter {
                 }
             }
 
-            OperationKind::Return | OperationKind::Args => {
+            OperationKind::Return | OperationKind::Args | OperationKind::Range => {
                 todo!();
             }
         }

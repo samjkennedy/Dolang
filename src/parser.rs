@@ -55,6 +55,7 @@ pub enum OperationKind {
     Fold,
     Foreach,
     Call,
+    Range,
     Zip,
     Pick,
     Slice,
@@ -228,6 +229,10 @@ impl Parser {
             }),
             TokenKind::CallKeyword => Ok(Operation {
                 kind: OperationKind::Call,
+                loc: next.loc.clone(),
+            }),
+            TokenKind::RangeKeyword => Ok(Operation {
+                kind: OperationKind::Range,
                 loc: next.loc.clone(),
             }),
             TokenKind::ZipKeyword => Ok(Operation {
