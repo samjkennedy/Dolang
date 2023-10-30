@@ -62,7 +62,7 @@ fn main() {
     }
     //println!("{:#?}", ops);
 
-    let enable_type_checking = false;
+    let enable_type_checking = true;
 
     let mut type_checker = TypeChecker::new();
 

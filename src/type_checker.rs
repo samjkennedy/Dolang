@@ -244,6 +244,18 @@ impl TypeChecker {
                 });
                 Ok(())
             }
+            OperationKind::Range => {
+                self.expect_type(TypeKind::Int, op.loc.clone())?;
+                self.expect_type(TypeKind::Int, op.loc.clone())?;
+
+                self.type_stack.push(TypeToken {
+                    kind: TypeKind::Array {
+                        el_type: Box::new(TypeKind::Int),
+                    },
+                    introduced_at: op.loc,
+                });
+                Ok(())
+            }
             OperationKind::Len => {
                 let array = self.expect_any(op.loc.clone())?;
                 match array.kind {

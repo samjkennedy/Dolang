@@ -601,6 +601,26 @@ impl Compiler {
                     }\n",
                 )?;
             }
+            OperationKind::Range => {
+                
+                self.out_file.write(
+                    b"{
+        Value upper = pop();
+        Value lower = pop();
+        Array *arr = (Array *)malloc(sizeof(Array));
+        arr->offset = 0;
+        arr->length = upper.value - lower.value;
+        Value *data;
+        data = (Value *)calloc(arr->length, sizeof(Value));
+        for (int i = lower.value; i < upper.value; i++)
+        {
+            data[i - lower.value] = (Value){1, i};
+        }
+        arr->data = data;
+        push((Value){3, (int)arr});
+                    }\n",
+                )?;
+            }
             _ => todo!("{:?}", op),
         }
         Ok(())
