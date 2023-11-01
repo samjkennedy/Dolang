@@ -16,7 +16,6 @@ pub enum Operand {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Function {
     pub name: String,
-    pub generics: Option<Vec<Token>>,
     pub ins: Vec<TypeExpression>,
     pub outs: Vec<TypeExpression>,
     pub body: Operand,
@@ -31,6 +30,7 @@ pub enum OperationKind {
     Over,
     Rot,
     FunctionDefinition { function: Function },
+    FunctionBaseCaseDefinition { function: Function },
     FunctionCall { name: String },
     Add,
     Sub,
@@ -68,9 +68,18 @@ pub enum OperationKind {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum TypePatternKind {
+    Literal { value: usize }, //TODO: What about the other types?
+                              //Array
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TypeExpressionKind {
     Identifier {
         text: String,
+    },
+    Pattern {
+        kind: TypePatternKind,
     },
     Function {
         ins: Vec<TypeExpression>,
@@ -301,11 +310,16 @@ impl Parser {
                     let mut ins: Vec<TypeExpression> = vec![];
                     let mut outs: Vec<TypeExpression> = vec![];
 
+                    let mut is_base_case_definition = false;
+
                     //Parse ins
                     while self.cursor < self.tokens.len()
                         && &self.tokens[self.cursor].kind != &TokenKind::Arrow
                     {
                         let type_expression = self.parse_type_expression()?;
+                        if let TypeExpressionKind::Pattern { .. } = type_expression.kind {
+                            is_base_case_definition = true;
+                        }
                         ins.push(type_expression);
                     }
                     self.expect_token(TokenKind::Arrow)?;
@@ -322,11 +336,24 @@ impl Parser {
                     //Parse body
                     let body = self.parse_seq()?;
 
+                    if is_base_case_definition {
+                        return Ok(Operation {
+                            kind: OperationKind::FunctionBaseCaseDefinition {
+                                function: Function {
+                                    name: function_name.clone(),
+                                    ins,
+                                    outs,
+                                    body,
+                                },
+                            },
+                            loc: next.loc.clone(),
+                        });
+                    }
+
                     return Ok(Operation {
                         kind: OperationKind::FunctionDefinition {
                             function: Function {
                                 name: function_name.clone(),
-                                generics: None,
                                 ins,
                                 outs,
                                 body,
@@ -375,6 +402,16 @@ impl Parser {
                 let type_expression = TypeExpression {
                     kind: TypeExpressionKind::Identifier {
                         text: tok.text.clone(),
+                    },
+                    loc: tok.loc.clone(),
+                };
+                self.cursor += 1;
+                return Ok(type_expression);
+            }
+            TokenKind::IntLiteral { value } => {
+                let type_expression = TypeExpression {
+                    kind: TypeExpressionKind::Pattern {
+                        kind: TypePatternKind::Literal { value },
                     },
                     loc: tok.loc.clone(),
                 };
