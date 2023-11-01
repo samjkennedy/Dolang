@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use crate::{
     diagnostic::{Diagnostic, Severity},
     lexer::{Loc, Token, TokenKind},
-    parser::{Operand, Operation, OperationKind},
+    parser::{Operand, Operation, OperationKind, TypeExpression, TypeExpressionKind},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,7 +176,18 @@ impl TypeChecker2 {
                     kind: op.kind.clone(),
                     loc: op.loc.clone(),
                     ins: vec![a.clone(), b.clone(), c.clone()],
-                    outs: vec![c, a, b],
+                    outs: vec![b, a, c],
+                })
+            }
+            OperationKind::Over => {
+                let a = self.next_generic();
+                let b = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: op.kind.clone(),
+                    loc: op.loc.clone(),
+                    ins: vec![a.clone(), b.clone()],
+                    outs: vec![b.clone(), a, b],
                 })
             }
             OperationKind::Add
@@ -328,7 +339,8 @@ impl TypeChecker2 {
                     let outs = &function.outs.clone();
 
                     let mut inputs = vec![];
-                    for input in ins {
+                    //Reverse the inputs because stack I guess?
+                    for input in ins.into_iter().rev() {
                         inputs.push(input.kind.clone());
                     }
                     let mut outputs = vec![];
@@ -660,7 +672,61 @@ impl TypeChecker2 {
                     outs: vec![t],
                 })
             }
+            OperationKind::Call => {
+                //peek behind at the function before
+                if self.type_stack.is_empty() {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Expected function but the type stack was empty",),
+                        hint: None,
+                    });
+                }
+                if let TypeKind::Function { mut ins, outs } = self.peek().unwrap() {
+                    let mut inputs: Vec<TypeKind> = vec![];
+                    inputs.push(TypeKind::Function {
+                        ins: ins.clone(),
+                        outs: outs.clone(),
+                    });
+                    inputs.append(&mut ins);
+                    return Ok(CheckedOperation {
+                        kind: OperationKind::Call,
+                        loc: op.loc.clone(),
+                        ins: inputs,
+                        outs,
+                    });
+                } else {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!(
+                            "Expected function but got `{}`",
+                            self.type_stack[self.type_stack.len() - 1].kind
+                        ),
+                        hint: Some(format!(
+                            "{} introduced at {}",
+                            self.type_stack[self.type_stack.len() - 1].kind,
+                            self.type_stack[self.type_stack.len() - 1].introduced_at
+                        )),
+                    });
+                }
+            }
             _ => todo!("{:?}", op.kind),
+        }
+    }
+
+    fn peek(&self) -> Option<TypeKind> {
+        if self.type_stack.is_empty() {
+            return None;
+        }
+        match self.type_stack[self.type_stack.len() - 1].kind {
+            TypeKind::Generic { id } => {
+                if self.generics.contains_key(&id) {
+                    return self.generics.get(&id).clone().cloned();
+                }
+                return Some(self.type_stack[self.type_stack.len() - 1].kind.clone());
+            }
+            _ => Some(self.type_stack[self.type_stack.len() - 1].kind.clone()),
         }
     }
 
@@ -670,25 +736,28 @@ impl TypeChecker2 {
         return TypeKind::Generic { id };
     }
 
-    fn get_type(token: &Token, type_stack: &mut Vec<TypeToken>) -> Result<TypeToken, Diagnostic> {
-        if let TokenKind::Identifier { text } = &token.kind {
-            match text.as_str() {
+    fn get_type(
+        type_expression: &TypeExpression,
+        type_stack: &mut Vec<TypeToken>,
+    ) -> Result<TypeToken, Diagnostic> {
+        match &type_expression.kind {
+            TypeExpressionKind::Identifier { text } => match text.as_str() {
                 "int" => {
                     return Ok(TypeToken {
                         kind: TypeKind::Int,
-                        introduced_at: token.loc.clone(),
+                        introduced_at: type_expression.loc.clone(),
                     })
                 }
                 "bool" => {
                     return Ok(TypeToken {
                         kind: TypeKind::Bool,
-                        introduced_at: token.loc.clone(),
+                        introduced_at: type_expression.loc.clone(),
                     })
                 }
                 "char" => {
                     return Ok(TypeToken {
                         kind: TypeKind::Char,
-                        introduced_at: token.loc.clone(),
+                        introduced_at: type_expression.loc.clone(),
                     })
                 }
                 "string" => {
@@ -696,7 +765,7 @@ impl TypeChecker2 {
                         kind: TypeKind::Array {
                             el_type: Box::new(TypeKind::Char),
                         },
-                        introduced_at: token.loc.clone(),
+                        introduced_at: type_expression.loc.clone(),
                     })
                 }
                 "array" => match type_stack.pop() {
@@ -705,13 +774,13 @@ impl TypeChecker2 {
                             kind: TypeKind::Array {
                                 el_type: Box::new(type_token.kind),
                             },
-                            introduced_at: token.loc.clone(),
+                            introduced_at: type_expression.loc.clone(),
                         });
                     }
                     None => {
                         return Err(Diagnostic {
                             severity: Severity::Error,
-                            loc: token.loc.clone(),
+                            loc: type_expression.loc.clone(),
                             message: format!("Expected type but type stack was empty"),
                             hint: Some("Declare array types as `<element type> array`".to_owned()),
                         })
@@ -720,19 +789,40 @@ impl TypeChecker2 {
                 _ => {
                     return Err(Diagnostic {
                         severity: Severity::Error,
-                        loc: token.loc.clone(),
+                        loc: type_expression.loc.clone(),
                         message: format!("Type `{:?}` is not defined", text),
                         hint: None,
                     })
                 }
+            },
+            TypeExpressionKind::Function { ins, outs } => {
+                let mut in_types: Vec<TypeKind> = vec![];
+                let mut out_types: Vec<TypeKind> = vec![];
+
+                for in_type in ins.into_iter().rev() {
+                    in_types.push(Self::get_type(in_type, type_stack)?.kind);
+                }
+
+                for out_type in outs {
+                    out_types.push(Self::get_type(out_type, type_stack)?.kind);
+                }
+
+                return Ok(TypeToken {
+                    kind: TypeKind::Function {
+                        ins: in_types,
+                        outs: out_types,
+                    },
+                    introduced_at: type_expression.loc.clone(),
+                });
             }
-        } else {
-            return Err(Diagnostic {
-                severity: Severity::Error,
-                loc: token.loc.clone(),
-                message: format!("Expected identifier but got `{:?}`", token.kind),
-                hint: None,
-            });
+            _ => {
+                return Err(Diagnostic {
+                    severity: Severity::Error,
+                    loc: type_expression.loc.clone(),
+                    message: format!("Expected identifier but got `{:?}`", type_expression),
+                    hint: None,
+                });
+            }
         }
     }
 
@@ -846,12 +936,6 @@ impl TypeChecker2 {
                         }
                     }
                 }
-                // if let TypeKind::Function { ins, outs } = left {
-                //     todo!()
-                // }
-                // if let TypeKind::Function { ins, outs } = right {
-                //     todo!()
-                // }
                 if left != right {
                     return Err(Diagnostic {
                         severity: Severity::Error,

@@ -1,5 +1,3 @@
-let puti int -> (print)
-
 let main -> (
-    (+ puti) 34 35 rot call
+    (+ print) 34 35 rot call
 )
