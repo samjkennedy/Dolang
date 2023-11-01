@@ -8,4 +8,10 @@ let main -> (
         print
 
     [] (dup *) map print
+
+    [1 2 3] dup print print
+
+    [1 2 3]
+        (2 =) split
+    print print
 )

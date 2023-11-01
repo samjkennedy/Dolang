@@ -1,5 +1,7 @@
-let sout <a> a -> (
+let main -> (
+    [true false]
+        (false =) filter
+        len
+    print
     print
 )
-
-5 sout

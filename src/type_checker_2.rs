@@ -76,6 +76,7 @@ struct CheckedFunction {
     body: Vec<CheckedOperation>,
 }
 
+#[derive(Debug, Clone)]
 pub struct TypeChecker2 {
     type_stack: Vec<TypeToken>,
     functions: HashMap<String, CheckedFunction>,
@@ -99,11 +100,15 @@ impl TypeChecker2 {
     ) -> Result<Vec<CheckedOperation>, Diagnostic> {
         let mut checked_ops: Vec<CheckedOperation> = vec![];
         for op in ops {
-            //println!("op: {:?}", op);
+            // println!("stack: {:?}", self.type_stack);
+            // println!("op: {:?}", op);
             let checked_op = self.check_op(op)?;
+            // println!("checked op: {:?}", checked_op);
 
             //manipulate stack
             for input in &checked_op.ins {
+                // println!("checking input: {:?}", input);
+                // println!("stack: {:?}", self.type_stack);
                 self.expect_type(input, op.loc.clone())?;
             }
             for output in &checked_op.outs {
@@ -112,7 +117,6 @@ impl TypeChecker2 {
                     introduced_at: op.loc.clone(),
                 });
             }
-            // println!("checked op: {:?}", checked_op);
             // println!("stack: {:?}", self.type_stack);
             // println!("------------");
             checked_ops.push(checked_op);
@@ -160,7 +164,19 @@ impl TypeChecker2 {
                     kind: op.kind.clone(),
                     loc: op.loc.clone(),
                     ins: vec![a.clone(), b.clone()],
-                    outs: vec![b, a],
+                    outs: vec![a, b],
+                })
+            }
+            OperationKind::Rot => {
+                let a = self.next_generic();
+                let b = self.next_generic();
+                let c = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: op.kind.clone(),
+                    loc: op.loc.clone(),
+                    ins: vec![a.clone(), b.clone(), c.clone()],
+                    outs: vec![c, a, b],
                 })
             }
             OperationKind::Add
@@ -223,16 +239,15 @@ impl TypeChecker2 {
 
                 let mut inputs: Vec<TypeToken> = vec![];
                 for input in &function.ins {
-                    let typ = Self::get_type(input, &mut function_type_checker.type_stack)?;
-                    inputs.push(typ.clone());
-                    function_type_checker.type_stack.push(TypeToken {
-                        kind: typ.kind,
-                        introduced_at: input.loc.clone(),
-                    });
+                    let typ = Self::get_type(input, &mut inputs)?;
+                    inputs.push(typ);
+                }
+                for input in &inputs {
+                    function_type_checker.type_stack.push(input.clone());
                 }
                 let mut outputs: Vec<TypeToken> = vec![];
                 for output in &function.outs {
-                    let typ = Self::get_type(output, &mut function_type_checker.type_stack)?;
+                    let typ = Self::get_type(output, &mut outputs)?;
                     outputs.push(typ);
                 }
 
@@ -248,6 +263,42 @@ impl TypeChecker2 {
                 );
                 if let Operand::Seq { ops } = &function.body {
                     let checked_body = function_type_checker.check_program(ops)?;
+
+                    let end_type_stack = function_type_checker.type_stack.clone();
+                    for output_type in outputs.clone().into_iter().rev() {
+                        function_type_checker
+                            .expect_type(&output_type.kind, output_type.introduced_at)?;
+                    }
+
+                    if !function_type_checker.type_stack.is_empty() && !outputs.is_empty() {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: outputs[outputs.len() - 1].introduced_at.clone(),
+                            message: format!(
+                                "Type stack at the end of `{}` does not match signature `[{}] -> [{}]`",
+                                function.name,
+                                inputs
+                                    .into_iter()
+                                    .map(|s| s.kind.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(" "),
+                                outputs
+                                    .into_iter()
+                                    .map(|s| s.kind.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(" "),
+                            ),
+                            hint: Some(format!(
+                                "Type stack at the end of execution was:\n\t{}",
+                                end_type_stack
+                                    .into_iter()
+                                    .rev()
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join("\n\t")
+                            )),
+                        });
+                    }
 
                     self.functions.insert(
                         function.name.clone(),
@@ -272,6 +323,7 @@ impl TypeChecker2 {
             OperationKind::FunctionCall { name } => {
                 if self.functions.contains_key(name) {
                     let function = self.functions.get(name).unwrap();
+
                     let ins = &function.ins.clone();
                     let outs = &function.outs.clone();
 
@@ -282,8 +334,8 @@ impl TypeChecker2 {
                     let mut outputs = vec![];
                     for output in outs.clone() {
                         outputs.push(output.kind.clone());
-                        self.type_stack.push(output);
                     }
+
                     Ok(CheckedOperation {
                         kind: op.kind.clone(),
                         loc: op.loc.clone(),
@@ -395,6 +447,217 @@ impl TypeChecker2 {
                     outs: vec![TypeKind::Array {
                         el_type: Box::new(t),
                     }],
+                })
+            }
+            OperationKind::Pick => {
+                let t = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: OperationKind::Pick,
+                    loc: op.loc.clone(),
+                    ins: vec![
+                        TypeKind::Int,
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                    ],
+                    outs: vec![
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                        t,
+                    ],
+                })
+            }
+            OperationKind::Len => {
+                let t = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: OperationKind::Len,
+                    loc: op.loc.clone(),
+                    ins: vec![TypeKind::Array {
+                        el_type: Box::new(t.clone()),
+                    }],
+                    outs: vec![
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                        TypeKind::Int,
+                    ],
+                })
+            }
+            OperationKind::Partial => {
+                //peek behind at the function before
+                if self.type_stack.is_empty() {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Expected function but the type stack was empty",),
+                        hint: None,
+                    });
+                }
+                if let TypeKind::Function { ins, outs } =
+                    self.type_stack[self.type_stack.len() - 1].kind.clone()
+                {
+                    if self.type_stack.len() == 1 {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: op.loc.clone(),
+                            message: format!("Expected value but the type stack was empty",),
+                            hint: None,
+                        });
+                    }
+                    let value = &self.type_stack[self.type_stack.len() - 2].kind.clone();
+                    if ins.len() > 0 {
+                        self.types_equal(&ins[0].clone(), &value.clone(), op.loc.clone())?;
+                        return Ok(CheckedOperation {
+                            kind: OperationKind::Len,
+                            loc: op.loc.clone(),
+                            ins: vec![
+                                TypeKind::Function {
+                                    ins: ins.to_vec(),
+                                    outs: outs.to_vec(),
+                                },
+                                value.clone(),
+                            ],
+                            outs: vec![TypeKind::Function {
+                                ins: ins[1..].to_vec(),
+                                outs: outs.to_vec(),
+                            }],
+                        });
+                    }
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Value of type `{}` is not applicable to partial application of function `{}`",
+                        value, self.type_stack[self.type_stack.len() - 1].kind
+                    ),
+                        hint: None,
+                    });
+                } else {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Expected function but the type stack was empty",),
+                        hint: None,
+                    });
+                }
+            }
+            OperationKind::If => {
+                //peek behind at the function before
+                if self.type_stack.is_empty() {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Expected function but the type stack was empty",),
+                        hint: None,
+                    });
+                }
+                if let TypeKind::Function {
+                    ins: true_ins,
+                    outs: true_outs,
+                } = self.type_stack[self.type_stack.len() - 1].kind.clone()
+                {
+                    if self.type_stack.len() == 1 {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: op.loc.clone(),
+                            message: format!("Expected value but the type stack was empty",),
+                            hint: None,
+                        });
+                    }
+                    if let TypeKind::Function {
+                        ins: false_ins,
+                        outs: false_outs,
+                    } = self.type_stack[self.type_stack.len() - 2].kind.clone()
+                    {
+                        if true_ins.len() != false_ins.len() || true_outs.len() != false_outs.len()
+                        {
+                            return Err(Diagnostic {
+                                severity: Severity::Error,
+                                loc: op.loc.clone(),
+                                message: format!(
+                                    "Branches in `if` function must have the same signature.\n\ttrue:  `{}`\n\tfalse: `{}`",
+                                    format!("fn [{}] -> [{}]", 
+                                        true_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "), 
+                                        true_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
+                                    ),
+                                    format!("fn [{}] -> [{}]", 
+                                        false_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "), 
+                                        false_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
+                                    ),
+                                ),
+                                hint: None,
+                            });
+                        }
+                        todo!()
+                    } else {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: op.loc.clone(),
+                            message: format!("Expected function but the type stack was empty",),
+                            hint: None,
+                        });
+                    }
+                } else {
+                    return Err(Diagnostic {
+                        severity: Severity::Error,
+                        loc: op.loc.clone(),
+                        message: format!("Expected function but the type stack was empty",),
+                        hint: None,
+                    });
+                }
+            }
+            OperationKind::Slice => {
+                let t = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: OperationKind::Slice,
+                    loc: op.loc.clone(),
+                    ins: vec![
+                        TypeKind::Int,
+                        TypeKind::Int,
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                    ],
+                    outs: vec![TypeKind::Array {
+                        el_type: Box::new(t),
+                    }],
+                })
+            }
+            OperationKind::Split => {
+                let t = self.next_generic();
+
+                Ok(CheckedOperation {
+                    kind: OperationKind::Split,
+                    loc: op.loc.clone(),
+                    ins: vec![
+                        TypeKind::Function {
+                            ins: vec![t.clone()],
+                            outs: vec![TypeKind::Bool],
+                        },
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                    ],
+                    outs: vec![
+                        TypeKind::Array {
+                            el_type: Box::new(t.clone()),
+                        },
+                        TypeKind::Array {
+                            el_type: Box::new(t),
+                        },
+                    ],
+                })
+            }
+            OperationKind::Identity => {
+                let t = self.next_generic();
+                Ok(CheckedOperation {
+                    kind: OperationKind::Len,
+                    loc: op.loc.clone(),
+                    ins: vec![t.clone()],
+                    outs: vec![t],
                 })
             }
             _ => todo!("{:?}", op.kind),
@@ -583,12 +846,12 @@ impl TypeChecker2 {
                         }
                     }
                 }
-                if let TypeKind::Function { ins, outs } = left {
-                    todo!()
-                }
-                if let TypeKind::Function { ins, outs } = right {
-                    todo!()
-                }
+                // if let TypeKind::Function { ins, outs } = left {
+                //     todo!()
+                // }
+                // if let TypeKind::Function { ins, outs } = right {
+                //     todo!()
+                // }
                 if left != right {
                     return Err(Diagnostic {
                         severity: Severity::Error,

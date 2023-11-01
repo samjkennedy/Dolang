@@ -61,6 +61,40 @@ impl Compiler {
         self.out_file.write(b"    sp -= 1;\n")?;
         self.out_file.write(b"    return stack[sp];\n")?;
         self.out_file.write(b"}\n")?;
+        //dup
+        self.out_file.write(
+            b"void dup()
+{
+    Value a = pop();
+    switch (a.typeTag)
+    {
+    case 3:
+    {
+        Array *originalArray = (Array *)a.value;
+        int length = originalArray->length;
+
+        // Allocate memory for the new array
+        Array *duplicateArray = (Array *)malloc(sizeof(Array));
+        duplicateArray->offset = originalArray->offset;
+        duplicateArray->length = length;
+        duplicateArray->data = (Value *)malloc(length * sizeof(Value));
+
+        // Copy the elements from the original array to the duplicate array
+        memcpy(duplicateArray->data, originalArray->data, length * sizeof(Value));
+
+        push((Value){3, (int)originalArray});
+        push((Value){3, (int)duplicateArray});
+    }
+    break;
+    default:
+    {
+        Value b = a;
+        push(a);
+        push(b);
+    }
+    }
+}",
+        )?;
         //printArray
         self.out_file.write(b"    void printArray(Value v) {\n")?;
         self.out_file
@@ -208,11 +242,13 @@ impl Compiler {
             .write(b"    Value *arrayData = arrayValue.data;\n")?;
         self.out_file
             .write(b"    Array *trueArray = malloc(sizeof(Array));\n")?;
+        self.out_file.write(b"    trueArray->offset = 0;\n")?;
         self.out_file.write(b"    trueArray->length = 0;\n")?;
         self.out_file
             .write(b"    trueArray->data = malloc(arrayValue.length * sizeof(Value));\n")?;
         self.out_file
             .write(b"    Array *falseArray = malloc(sizeof(Array));\n")?;
+        self.out_file.write(b"    falseArray->offset = 0;\n")?;
         self.out_file.write(b"    falseArray->length = 0;\n")?;
         self.out_file
             .write(b"    falseArray->data = malloc(arrayValue.length * sizeof(Value));\n")?;
@@ -342,6 +378,15 @@ impl Compiler {
         self.out_file.write(b"}\n")?;
         self.out_file.write(b"}\n")?;
 
+        //partial
+        self.out_file.write(
+            b"void partial() {
+    Value lambda = pop();
+    Value arg = pop();
+    push(lambda);
+        }\n",
+        )?;
+
         for op in ops {
             self.emit(op)?;
         }
@@ -356,12 +401,7 @@ impl Compiler {
                 self.out_file.write(b"pop();\n")?;
             }
             OperationKind::Dup => {
-                self.out_file.write(b"    {\n")?;
-                self.out_file.write(b"        Value a = pop();\n")?;
-                self.out_file.write(b"        Value b = a;\n")?;
-                self.out_file.write(b"        push(a);\n")?;
-                self.out_file.write(b"        push(b);\n")?;
-                self.out_file.write(b"    }\n")?;
+                self.out_file.write(b"dup();\n")?;
             }
             OperationKind::Rot => {
                 self.out_file.write(b"    {\n")?;
@@ -520,6 +560,9 @@ impl Compiler {
             }
             OperationKind::Concat => {
                 self.out_file.write(b"    concat();\n")?;
+            }
+            OperationKind::Partial => {
+                self.out_file.write(b"    partial();\n")?;
             }
             OperationKind::Call => {
                 self.out_file.write(b"    {\n")?;

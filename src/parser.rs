@@ -61,6 +61,7 @@ pub enum OperationKind {
     Pick,
     Slice,
     Split,
+    Partial,
     If,
     Return,
     Args,
@@ -202,6 +203,10 @@ impl Parser {
             }),
             TokenKind::LenKeyword => Ok(Operation {
                 kind: OperationKind::Len,
+                loc: next.loc.clone(),
+            }),
+            TokenKind::PartialKeyword => Ok(Operation {
+                kind: OperationKind::Partial,
                 loc: next.loc.clone(),
             }),
             TokenKind::ConsKeyword => Ok(Operation {

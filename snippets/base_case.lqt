@@ -1,0 +1,9 @@
+let fib 0 -> int (0)
+let fib 1 -> int (1)
+let fib int -> int (
+    dup 1 - fib swap 2 - fib +
+)
+
+let main -> (
+    5 fib print
+)
