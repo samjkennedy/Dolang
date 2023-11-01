@@ -50,6 +50,7 @@ pub enum OperationKind {
     Len,
     Cons,
     Concat,
+    Append,
     Map,
     Filter,
     Fold,
@@ -209,6 +210,10 @@ impl Parser {
             }),
             TokenKind::ConcatKeyword => Ok(Operation {
                 kind: OperationKind::Concat,
+                loc: next.loc.clone(),
+            }),
+            TokenKind::AppendKeyword => Ok(Operation {
+                kind: OperationKind::Append,
                 loc: next.loc.clone(),
             }),
             TokenKind::MapKeyword => Ok(Operation {
