@@ -1,4 +1,4 @@
-"Hello " "world" concat print
+
 
 let putc char -> (print)
 
@@ -9,16 +9,19 @@ let any bool array -> bool (
     false (or) fold
 )
 
-"Hello"
-    (putc) foreach
-
-"Hello" ('e chareq) map
-    any print
-
-"Hello" len print
-
 let chardup char -> char char (dup)
 
-"Characters On uppercase OnLy"
-    (chardup 'A >= swap 'Z <= and) filter
-    print
+let main -> (
+    "Hello " "world" concat print
+    "Hello"
+        (putc) foreach
+
+    "Hello" ('e chareq) map
+        any print
+
+    "Hello" len print
+
+    "Characters On uppercase OnLy"
+        (chardup 'A >= swap 'Z <= and) filter
+        print
+)

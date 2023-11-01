@@ -92,8 +92,9 @@ impl Compiler {
             .write(b"printf(\"%s\", arrayData[i].value);\n")?;
         self.out_file.write(b"break;\n")?;
         self.out_file.write(b"default:\n")?;
-        self.out_file
-            .write(b"      printf(\"%s\\n\", \"unhandled datatype\");\n")?;
+        self.out_file.write(
+            b"      printf(\"%s: %d\\n\", \"unhandled datatype\", arrayData[i].typeTag);\n",
+        )?;
         self.out_file.write(b"break;\n")?;
         self.out_file.write(b"    }\n")?;
 
@@ -101,7 +102,7 @@ impl Compiler {
         self.out_file.write(b"printf(\"%s\", \" \");\n")?;
         self.out_file.write(b"}\n")?;
         self.out_file.write(b"}\n")?;
-        self.out_file.write(b"printf(\"%s\\n\", \"]\");\n")?;
+        self.out_file.write(b"printf(\"%s\", \"]\");\n")?;
         self.out_file.write(b"free(arrayData);\n")?;
         self.out_file.write(b"free((Array *)v.value);\n")?;
         self.out_file.write(b"    }\n")?;
@@ -120,13 +121,18 @@ impl Compiler {
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    case 3:\n")?;
         self.out_file.write(b"      printArray(v);\n")?;
+        self.out_file.write(b"      printf(\"\\n\");\n")?;
+        self.out_file.write(b"      break;\n")?;
+        self.out_file.write(b"    case 4:\n")?;
+        self.out_file.write(b"      printf(\"<seq>\\n\");\n")?;
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    case 5:\n")?;
-        self.out_file.write(b"      printf(\"%s\\n\", v.value);\n")?;
+        self.out_file
+            .write(b"      printf(\"%s\\n\", v.value);\n")?;
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    default:\n")?;
         self.out_file
-            .write(b"      printf(\"%s\\n\", \"unhandled datatype\");\n")?;
+            .write(b"      printf(\"%s: %d\\n\", \"unhandled datatype\", v.typeTag);\n")?;
         self.out_file.write(b"      }\n")?;
         self.out_file.write(b"}\n")?;
         self.out_file.write(b"\n")?;
@@ -159,6 +165,7 @@ impl Compiler {
             .write(b"    Value *arrayData = arrayValue.data;\n")?;
         self.out_file
             .write(b"    Array *resultArray = malloc(sizeof(Array));\n")?;
+        self.out_file.write(b"    resultArray->offset = 0;\n")?;
         self.out_file.write(b"    resultArray->length = 0;\n")?;
         self.out_file
             .write(b"    resultArray->data = malloc(arrayValue.length * sizeof(Value));\n")?;
@@ -309,6 +316,7 @@ impl Compiler {
             .write(b"    int totalLength = array1Value.length + array2Value.length;\n")?;
         self.out_file
             .write(b"    Array *resultArray = malloc(sizeof(Array));\n")?;
+        self.out_file.write(b"    resultArray->offset = 0;\n")?;
         self.out_file
             .write(b"    resultArray->length = totalLength;\n")?;
         self.out_file
@@ -538,7 +546,7 @@ impl Compiler {
                 self.out_file
                     .write(b"    Array arrayValue = *(Array *)array.value;\n")?;
                 self.out_file
-                    .write(b"    Value el = arrayValue.data[index.value];\n")?;
+                    .write(b"    Value el = arrayValue.data[index.value + arrayValue.offset];\n")?;
                 self.out_file.write(b"        push(array);\n")?;
                 self.out_file.write(b"        push(el);\n")?;
                 self.out_file.write(b"    }\n")?;
@@ -552,7 +560,7 @@ impl Compiler {
                     .write(b"    Array *arrayValue = (Array *)array.value;\n")?;
 
                 self.out_file
-                    .write(b"   arrayValue->offset = lower.value;\n")?;
+                    .write(b"   arrayValue->offset = lower.value + arrayValue->offset;\n")?;
                 self.out_file
                     .write(b"   arrayValue->length = upper.value;\n")?;
                 self.out_file.write(b"        push(array);\n")?;
@@ -582,7 +590,6 @@ impl Compiler {
                 )?;
             }
             OperationKind::Cons => {
-                
                 self.out_file.write(
                     b"{
                         Value a = pop();
@@ -601,8 +608,24 @@ impl Compiler {
                     }\n",
                 )?;
             }
+            OperationKind::Append => {
+                self.out_file.write(
+                b"{
+                        Value array = pop();
+                        Value element = pop();
+
+                        Array *arrayValue = (Array *)array.value;
+                        int length = arrayValue->length;
+                        arrayValue->data = realloc(arrayValue->data, (length + 1) * sizeof(Value)); // Resize array
+
+                        arrayValue->data[length] = element;
+                        arrayValue->length++;
+
+                        push(array);
+                    }\n",
+            )?;
+            }
             OperationKind::Range => {
-                
                 self.out_file.write(
                     b"{
         Value upper = pop();
