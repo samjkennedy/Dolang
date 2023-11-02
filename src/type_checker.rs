@@ -21,7 +21,7 @@ pub enum TypeKind {
         outs: Vec<TypeKind>,
     },
     Generic {
-        id: usize,
+        id: String,
     },
 }
 
@@ -91,7 +91,7 @@ pub struct TypeChecker {
     type_stack: Vec<TypeToken>,
     functions: HashMap<String, CheckedFunction>,
     base_cases: HashMap<String, Vec<BaseCase>>,
-    generics: HashMap<usize, TypeKind>,
+    generics: HashMap<String, TypeKind>,
     generic_index: usize,
 }
 
@@ -173,6 +173,11 @@ impl TypeChecker {
             let checked_op = self.check_op(op)?;
             // println!("checked op: {:?}", checked_op);
 
+            let mut generics = HashMap::new();
+            if let OperationKind::FunctionCall {..} = op.kind {
+                generics = self.generics.clone();
+            }
+
             //manipulate stack
             for input in &checked_op.ins {
                 // println!("checking input: {:?}", input);
@@ -188,6 +193,10 @@ impl TypeChecker {
             // println!("stack: {:?}", self.type_stack);
             // println!("------------");
             checked_ops.push(checked_op);
+
+            if let OperationKind::FunctionCall {..} = op.kind {
+                self.generics = generics;
+            }
         }
         Ok(checked_ops)
     }
@@ -362,7 +371,7 @@ impl TypeChecker {
 
                 let mut inputs: Vec<TypeToken> = vec![];
                 for input in &function.ins {
-                    let typ = Self::get_type(input, &mut inputs)?;
+                    let typ = function_type_checker.get_type(input, &mut inputs)?;
                     inputs.push(typ);
                 }
                 for input in &inputs {
@@ -370,7 +379,7 @@ impl TypeChecker {
                 }
                 let mut outputs: Vec<TypeToken> = vec![];
                 for output in &function.outs {
-                    let typ = Self::get_type(output, &mut outputs)?;
+                    let typ = function_type_checker.get_type(output, &mut outputs)?;
                     outputs.push(typ);
                 }
 
@@ -856,7 +865,7 @@ impl TypeChecker {
 
                 let mut outputs: Vec<TypeToken> = vec![];
                 for output in &function.outs {
-                    let typ = Self::get_type(output, &mut outputs)?;
+                    let typ = self.get_type(output, &mut outputs)?;
                     outputs.push(typ);
                 }
 
@@ -941,7 +950,7 @@ impl TypeChecker {
         if self.type_stack.is_empty() {
             return None;
         }
-        match self.type_stack[self.type_stack.len() - 1].kind {
+        match self.type_stack[self.type_stack.len() - 1].kind.clone() {
             TypeKind::Generic { id } => {
                 if self.generics.contains_key(&id) {
                     return self.generics.get(&id).clone().cloned();
@@ -953,12 +962,13 @@ impl TypeChecker {
     }
 
     fn next_generic(&mut self) -> TypeKind {
-        let id = self.generic_index;
+        let id = self.generic_index.to_string();
         self.generic_index += 1;
         return TypeKind::Generic { id };
     }
 
     fn get_type(
+        &mut self,
         type_expression: &TypeExpression,
         type_stack: &mut Vec<TypeToken>,
     ) -> Result<TypeToken, Diagnostic> {
@@ -1022,11 +1032,11 @@ impl TypeChecker {
                 let mut out_types: Vec<TypeKind> = vec![];
 
                 for in_type in ins.into_iter().rev() {
-                    in_types.push(Self::get_type(in_type, type_stack)?.kind);
+                    in_types.push(self.get_type(in_type, type_stack)?.kind);
                 }
 
                 for out_type in outs {
-                    out_types.push(Self::get_type(out_type, type_stack)?.kind);
+                    out_types.push(self.get_type(out_type, type_stack)?.kind);
                 }
 
                 return Ok(TypeToken {
@@ -1037,11 +1047,19 @@ impl TypeChecker {
                     introduced_at: type_expression.loc.clone(),
                 });
             }
+            TypeExpressionKind::Generic { identifier } => {
+                return Ok(TypeToken {
+                    kind: TypeKind::Generic {
+                        id: identifier.to_string(),
+                    },
+                    introduced_at: type_expression.loc.clone(),
+                });
+            }
             _ => {
                 return Err(Diagnostic {
                     severity: Severity::Error,
                     loc: type_expression.loc.clone(),
-                    message: format!("Unexpected type expression: `{:?}`", type_expression),
+                    message: format!("Unhandled type expression: `{:?}`", type_expression),
                     hint: None,
                 });
             }
@@ -1083,10 +1101,10 @@ impl TypeChecker {
                     }
                     _ => {
                         if let Some(left_erasure) = self.generics.get(left_id) {
-                            self.generics.insert(*right_id, left_erasure.clone());
+                            self.generics.insert(right_id.clone(), left_erasure.clone());
                         }
                         if let Some(right_erasure) = self.generics.get(right_id) {
-                            self.generics.insert(*left_id, right_erasure.clone());
+                            self.generics.insert(left_id.clone(), right_erasure.clone());
                         }
                         return Ok(());
                     }
@@ -1142,7 +1160,7 @@ impl TypeChecker {
                             return self.types_equal(&type_kind.clone(), right, loc);
                         }
                         None => {
-                            self.generics.insert(*id, right.clone());
+                            self.generics.insert(id.clone(), right.clone());
                             return Ok(());
                         }
                     }
@@ -1153,7 +1171,7 @@ impl TypeChecker {
                             return self.types_equal(left, &type_kind.clone(), loc);
                         }
                         None => {
-                            self.generics.insert(*id, left.clone());
+                            self.generics.insert(id.clone(), left.clone());
                             return Ok(());
                         }
                     }
@@ -1213,6 +1231,7 @@ impl TypeChecker {
             Operand::Seq { ops } => {
                 let mut sub_type_checker = TypeChecker::new();
                 sub_type_checker.functions = self.functions.clone();
+                sub_type_checker.generics = self.generics.clone();
 
                 let mut inferred_ins: Vec<TypeKind> = vec![];
                 let mut inferred_outs: Vec<TypeKind> = vec![];
@@ -1225,7 +1244,7 @@ impl TypeChecker {
                     for input in checked_op.ins {
                         //Try to take this op's input from the previous output
                         if inferred_outs.is_empty()
-                            || !self
+                            || !sub_type_checker
                                 .types_equal(
                                     &inferred_outs[inferred_outs.len() - 1],
                                     &input,
@@ -1237,7 +1256,7 @@ impl TypeChecker {
                             inferred_ins.push(input);
                         } else {
                             //otherwise try to consume it from the inferred outputs
-                            self.types_equal(
+                            sub_type_checker.types_equal(
                                 &input,
                                 &inferred_outs.pop().unwrap(),
                                 op.loc.clone(),
@@ -1248,6 +1267,7 @@ impl TypeChecker {
                         inferred_outs.push(output.clone());
                     }
                 }
+
                 (
                     CheckedOperand::Seq { ops: checked_ops },
                     TypeKind::Function {

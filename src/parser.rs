@@ -85,7 +85,9 @@ pub enum TypeExpressionKind {
         ins: Vec<TypeExpression>,
         outs: Vec<TypeExpression>,
     }, //Array { }
-       //Generic
+    Generic {
+        identifier: String,
+    }
        //Pattern, //TODO
 }
 
@@ -445,6 +447,16 @@ impl Parser {
                     kind: TypeExpressionKind::Function { ins, outs },
                     loc: tok.loc.clone(),
                 });
+            },
+            TokenKind::CharLiteral { value } => {
+                let type_expression = TypeExpression {
+                    kind: TypeExpressionKind::Generic {
+                        identifier: value.to_string(),
+                    },
+                    loc: tok.loc.clone(),
+                };
+                self.cursor += 1;
+                return Ok(type_expression);
             }
             _ => {
                 return Err(Diagnostic {
