@@ -10,7 +10,11 @@ let factorial int -> int (
 )
 
 let main -> (
-    [0 1 2 3 4 5 6 7 8 9 10]
+    0 20 range
         (fib) map
+        print
+
+    0 8 range
+        (factorial) map
         print
 )

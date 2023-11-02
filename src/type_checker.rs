@@ -96,8 +96,18 @@ pub struct TypeChecker {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum CheckedOperand {
+    Bool { value: bool },
+    Int { value: usize },
+    Char { value: char },
+    Array { values: Vec<CheckedOperand> },
+    Seq { ops: Vec<CheckedOperation> },
+    String { value: String },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CheckedOpKind {
-    Push { operand: Operand },
+    Push { operand: CheckedOperand },
     Pop,
     Swap,
     Dup,
@@ -195,11 +205,11 @@ impl TypeChecker {
                 })
             }
             OperationKind::Push { operand } => {
-                let push_type = self.check_operand(operand)?;
+                let (checked_operand, push_type) = self.check_operand(operand)?;
 
                 Ok(CheckedOperation {
                     kind: CheckedOpKind::Push {
-                        operand: operand.clone(),
+                        operand: checked_operand,
                     },
                     loc: op.loc.clone(),
                     ins: vec![],
@@ -774,6 +784,14 @@ impl TypeChecker {
                     ],
                 })
             }
+            OperationKind::Range => Ok(CheckedOperation {
+                kind: CheckedOpKind::Range,
+                loc: op.loc.clone(),
+                ins: vec![TypeKind::Int, TypeKind::Int],
+                outs: vec![TypeKind::Array {
+                    el_type: Box::new(TypeKind::Int),
+                }],
+            }),
             OperationKind::Identity => {
                 let t = self.next_generic();
                 Ok(CheckedOperation {
@@ -1159,20 +1177,38 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_operand(&mut self, operand: &Operand) -> Result<TypeKind, Diagnostic> {
-        let push_type = match operand {
-            Operand::Bool { .. } => TypeKind::Bool,
-            Operand::Int { .. } => TypeKind::Int,
-            Operand::Char { .. } => TypeKind::Char,
+    fn check_operand(
+        &mut self,
+        operand: &Operand,
+    ) -> Result<(CheckedOperand, TypeKind), Diagnostic> {
+        let (checked_operand, push_type) = match operand {
+            Operand::Bool { value } => (CheckedOperand::Bool { value: *value }, TypeKind::Bool),
+            Operand::Int { value } => (CheckedOperand::Int { value: *value }, TypeKind::Int),
+            Operand::Char { value } => (CheckedOperand::Char { value: *value }, TypeKind::Char),
             Operand::Array { values } => {
                 if values.len() == 0 {
-                    return Ok(TypeKind::Array {
-                        el_type: Box::new(self.next_generic()),
-                    });
+                    return Ok((
+                        CheckedOperand::Array { values: vec![] },
+                        TypeKind::Array {
+                            el_type: Box::new(self.next_generic()),
+                        },
+                    ));
                 }
-                TypeKind::Array {
-                    el_type: Box::new(self.check_operand(&values[0])?),
+                let mut checked_values = vec![];
+                let mut el_type = TypeKind::Bool; //tmp
+                for value in values {
+                    let (checked_value, push_type) = self.check_operand(value)?;
+                    checked_values.push(checked_value);
+                    el_type = push_type;
                 }
+                (
+                    CheckedOperand::Array {
+                        values: checked_values,
+                    },
+                    TypeKind::Array {
+                        el_type: Box::new(el_type),
+                    },
+                )
             }
             Operand::Seq { ops } => {
                 let mut sub_type_checker = TypeChecker::new();
@@ -1180,8 +1216,11 @@ impl TypeChecker {
 
                 let mut inferred_ins: Vec<TypeKind> = vec![];
                 let mut inferred_outs: Vec<TypeKind> = vec![];
+
+                let mut checked_ops = vec![];
                 for op in ops {
                     let checked_op = sub_type_checker.check_op(op)?;
+                    checked_ops.push(checked_op.clone());
 
                     for input in checked_op.ins {
                         //Try to take this op's input from the previous output
@@ -1205,18 +1244,20 @@ impl TypeChecker {
                             )?;
                         }
                     }
-                    for output in checked_op.outs {
-                        inferred_outs.push(output);
+                    for output in &checked_op.outs {
+                        inferred_outs.push(output.clone());
                     }
                 }
-
-                TypeKind::Function {
-                    ins: inferred_ins,
-                    outs: inferred_outs,
-                }
+                (
+                    CheckedOperand::Seq { ops: checked_ops },
+                    TypeKind::Function {
+                        ins: inferred_ins,
+                        outs: inferred_outs,
+                    },
+                )
             }
             Operand::String { .. } => todo!(),
         };
-        Ok(push_type)
+        Ok((checked_operand, push_type))
     }
 }

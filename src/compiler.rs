@@ -1,7 +1,6 @@
 use crate::{
-    diagnostic::{Diagnostic, Severity},
-    parser::{Function, Operand, OperationKind},
-    type_checker::{CheckedFunction, CheckedOpKind, CheckedOperation},
+    parser::Operand,
+    type_checker::{CheckedFunction, CheckedOpKind, CheckedOperand, CheckedOperation},
 };
 use std::{
     collections::HashMap,
@@ -13,7 +12,7 @@ use std::{
 pub struct Compiler {
     pub out_file: File,
     next_lambda_label: usize,
-    lambdas: HashMap<Operand, String>,
+    lambdas: HashMap<CheckedOperand, String>,
 }
 
 impl Compiler {
@@ -694,12 +693,18 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_push_operand(&mut self, operand: &Operand) -> io::Result<()> {
+    fn emit_push_operand(&mut self, operand: &CheckedOperand) -> io::Result<()> {
         match operand {
-            Operand::Bool { value } => write!(self.out_file, "push((Value){{0, {}}});\n", value)?,
-            Operand::Int { value } => write!(self.out_file, "push((Value){{1, {}}});\n", value)?,
-            Operand::Char { value } => write!(self.out_file, "push((Value){{2, {}}});\n", value)?,
-            Operand::Array { values } => {
+            CheckedOperand::Bool { value } => {
+                write!(self.out_file, "push((Value){{0, {}}});\n", value)?
+            }
+            CheckedOperand::Int { value } => {
+                write!(self.out_file, "push((Value){{1, {}}});\n", value)?
+            }
+            CheckedOperand::Char { value } => {
+                write!(self.out_file, "push((Value){{2, {}}});\n", value)?
+            }
+            CheckedOperand::Array { values } => {
                 let length = values.len();
                 self.out_file.write(b"{\n")?;
                 self.out_file
@@ -721,7 +726,7 @@ impl Compiler {
                 self.out_file.write(b"    push((Value){3, (int)arr});\n")?;
                 self.out_file.write(b"}\n")?;
             }
-            Operand::Seq { .. } => {
+            CheckedOperand::Seq { .. } => {
                 let lambda = self
                     .lambdas
                     .get(operand)
@@ -737,7 +742,7 @@ impl Compiler {
                     lambda
                 )?;
             }
-            Operand::String { value } => {
+            CheckedOperand::String { value } => {
                 write!(self.out_file, "push((Value){{5, \"{}\"}});\n", value)?
             }
         }
@@ -757,30 +762,30 @@ impl Compiler {
     }
 
     fn predefine_lambdas(&mut self, ops: &Vec<CheckedOperation>) -> io::Result<()> {
-        // for op in ops {
-        //     if let CheckedOpKind::Push { operand } = &op.kind {
-        //         //TODO tomorrow: checkedOperand
-        //         if let Operand::Seq { ops: lambda } = operand {
-        //             self.predefine_lambdas(lambda)?;
-        //             write!(
-        //                 self.out_file,
-        //                 "void lambda_{}() {{\n",
-        //                 self.next_lambda_label
-        //             )?;
-        //             if !self.lambdas.contains_key(&operand) {
-        //                 self.lambdas.insert(
-        //                     operand.clone(),
-        //                     format!("lambda_{}", self.next_lambda_label),
-        //                 );
-        //             }
-        //             self.next_lambda_label += 1;
-        //             for lambda_op in lambda {
-        //                 self.emit(&lambda_op.kind)?;
-        //             }
-        //             self.out_file.write(b"}\n")?;
-        //         }
-        //     }
-        // }
+        for op in ops {
+            if let CheckedOpKind::Push { operand } = &op.kind {
+                //TODO tomorrow: checkedOperand
+                if let CheckedOperand::Seq { ops: lambda } = operand {
+                    self.predefine_lambdas(lambda)?;
+                    write!(
+                        self.out_file,
+                        "void lambda_{}() {{\n",
+                        self.next_lambda_label
+                    )?;
+                    if !self.lambdas.contains_key(&operand) {
+                        self.lambdas.insert(
+                            operand.clone(),
+                            format!("lambda_{}", self.next_lambda_label),
+                        );
+                    }
+                    self.next_lambda_label += 1;
+                    for lambda_op in lambda {
+                        self.emit(&lambda_op.kind)?;
+                    }
+                    self.out_file.write(b"}\n")?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -815,7 +820,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_operand_array(&mut self, values: &[Operand]) -> io::Result<()> {
+    fn emit_operand_array(&mut self, values: &[CheckedOperand]) -> io::Result<()> {
         self.out_file.write(b"{")?;
         for (i, operand) in values.into_iter().enumerate() {
             self.emit_operand(operand)?;
@@ -827,12 +832,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_operand(&mut self, operand: &Operand) -> io::Result<()> {
+    fn emit_operand(&mut self, operand: &CheckedOperand) -> io::Result<()> {
         match operand {
-            Operand::Bool { value } => write!(self.out_file, "(Value){{0, {}}}", value)?,
-            Operand::Int { value } => write!(self.out_file, "(Value){{1, {}}}", value)?,
-            Operand::Char { value } => write!(self.out_file, "(Value){{2, {}}}", value)?,
-            Operand::Array { values } => {
+            CheckedOperand::Bool { value } => write!(self.out_file, "(Value){{0, {}}}", value)?,
+            CheckedOperand::Int { value } => write!(self.out_file, "(Value){{1, {}}}", value)?,
+            CheckedOperand::Char { value } => write!(self.out_file, "(Value){{2, {}}}", value)?,
+            CheckedOperand::Array { values } => {
                 let length = values.len();
                 self.out_file.write(b"{")?;
                 self.out_file.write(b"    Array arr;")?;
@@ -842,8 +847,8 @@ impl Compiler {
                 self.out_file.write(b";\n")?;
                 self.out_file.write(b"    arr.data = data;\n")?;
             }
-            Operand::Seq { ops } => todo!(),
-            Operand::String { value } => todo!(),
+            CheckedOperand::Seq { ops } => todo!(),
+            CheckedOperand::String { value } => todo!(),
         }
         Ok(())
     }
