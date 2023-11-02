@@ -16,9 +16,8 @@ pub enum Operand {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Function {
     pub name: String,
-    pub generics: Option<Vec<Token>>,
-    pub ins: Vec<Token>,
-    pub outs: Vec<Token>,
+    pub ins: Vec<TypeExpression>,
+    pub outs: Vec<TypeExpression>,
     pub body: Operand,
 }
 
@@ -31,6 +30,7 @@ pub enum OperationKind {
     Over,
     Rot,
     FunctionDefinition { function: Function },
+    FunctionBaseCaseDefinition { function: Function },
     FunctionCall { name: String },
     Add,
     Sub,
@@ -65,6 +65,34 @@ pub enum OperationKind {
     If,
     Return,
     Args,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum TypePatternKind {
+    Literal { value: usize }, //TODO: What about the other types?
+                              //Array
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum TypeExpressionKind {
+    Identifier {
+        text: String,
+    },
+    Pattern {
+        kind: TypePatternKind,
+    },
+    Function {
+        ins: Vec<TypeExpression>,
+        outs: Vec<TypeExpression>,
+    }, //Array { }
+       //Generic
+       //Pattern, //TODO
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TypeExpression {
+    pub kind: TypeExpressionKind,
+    pub loc: Loc,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -279,25 +307,20 @@ impl Parser {
                     let function_name = text;
                     self.cursor += 1;
 
-                    let mut ins: Vec<Token> = vec![];
-                    let mut outs: Vec<Token> = vec![];
+                    let mut ins: Vec<TypeExpression> = vec![];
+                    let mut outs: Vec<TypeExpression> = vec![];
+
+                    let mut is_base_case_definition = false;
 
                     //Parse ins
                     while self.cursor < self.tokens.len()
                         && &self.tokens[self.cursor].kind != &TokenKind::Arrow
                     {
-                        let in_tok = &self.tokens[self.cursor].clone();
-                        if let TokenKind::Identifier { .. } = &in_tok.kind {
-                            ins.push(in_tok.clone());
-                            self.cursor += 1;
-                        } else {
-                            return Err(Diagnostic {
-                                severity: Severity::Error,
-                                loc: in_tok.loc.clone(),
-                                message: format!("Expected identifier but got `{:?}`", in_tok.kind),
-                                hint: None,
-                            });
+                        let type_expression = self.parse_type_expression()?;
+                        if let TypeExpressionKind::Pattern { .. } = type_expression.kind {
+                            is_base_case_definition = true;
                         }
+                        ins.push(type_expression);
                     }
                     self.expect_token(TokenKind::Arrow)?;
 
@@ -305,32 +328,32 @@ impl Parser {
                     while self.cursor < self.tokens.len()
                         && &self.tokens[self.cursor].kind != &TokenKind::OpenParen
                     {
-                        let out_tok = &self.tokens[self.cursor];
-                        if let TokenKind::Identifier { .. } = &out_tok.kind {
-                            outs.push(out_tok.clone());
-                            self.cursor += 1;
-                        } else {
-                            return Err(Diagnostic {
-                                severity: Severity::Error,
-                                loc: out_tok.loc.clone(),
-                                message: format!(
-                                    "Expected identifier but got `{:?}`",
-                                    out_tok.kind
-                                ),
-                                hint: None,
-                            });
-                        }
+                        let type_expression = self.parse_type_expression()?;
+                        outs.push(type_expression);
                     }
                     self.expect_token(TokenKind::OpenParen)?;
 
                     //Parse body
                     let body = self.parse_seq()?;
 
+                    if is_base_case_definition {
+                        return Ok(Operation {
+                            kind: OperationKind::FunctionBaseCaseDefinition {
+                                function: Function {
+                                    name: function_name.clone(),
+                                    ins,
+                                    outs,
+                                    body,
+                                },
+                            },
+                            loc: next.loc.clone(),
+                        });
+                    }
+
                     return Ok(Operation {
                         kind: OperationKind::FunctionDefinition {
                             function: Function {
                                 name: function_name.clone(),
-                                generics: None,
                                 ins,
                                 outs,
                                 body,
@@ -369,6 +392,68 @@ impl Parser {
                 message: format!("Unexpected token: `{:?}`", next.kind),
                 hint: None,
             }),
+        }
+    }
+
+    fn parse_type_expression(&mut self) -> Result<TypeExpression, Diagnostic> {
+        let tok = &self.tokens[self.cursor].clone();
+        match tok.kind {
+            TokenKind::Identifier { .. } => {
+                let type_expression = TypeExpression {
+                    kind: TypeExpressionKind::Identifier {
+                        text: tok.text.clone(),
+                    },
+                    loc: tok.loc.clone(),
+                };
+                self.cursor += 1;
+                return Ok(type_expression);
+            }
+            TokenKind::IntLiteral { value } => {
+                let type_expression = TypeExpression {
+                    kind: TypeExpressionKind::Pattern {
+                        kind: TypePatternKind::Literal { value },
+                    },
+                    loc: tok.loc.clone(),
+                };
+                self.cursor += 1;
+                return Ok(type_expression);
+            }
+            TokenKind::OpenParen => {
+                self.cursor += 1;
+                let mut ins: Vec<TypeExpression> = vec![];
+                let mut outs: Vec<TypeExpression> = vec![];
+
+                //Parse ins
+                while self.cursor < self.tokens.len()
+                    && &self.tokens[self.cursor].kind != &TokenKind::Arrow
+                {
+                    let type_expression = self.parse_type_expression()?;
+                    ins.push(type_expression);
+                }
+                self.expect_token(TokenKind::Arrow)?;
+
+                //Parse outs
+                while self.cursor < self.tokens.len()
+                    && &self.tokens[self.cursor].kind != &TokenKind::CloseParen
+                {
+                    let type_expression = self.parse_type_expression()?;
+                    outs.push(type_expression);
+                }
+                self.expect_token(TokenKind::CloseParen)?;
+
+                return Ok(TypeExpression {
+                    kind: TypeExpressionKind::Function { ins, outs },
+                    loc: tok.loc.clone(),
+                });
+            }
+            _ => {
+                return Err(Diagnostic {
+                    severity: Severity::Error,
+                    loc: tok.loc.clone(),
+                    message: format!("Unexpected Token `{:?}`", tok.kind),
+                    hint: None,
+                });
+            }
         }
     }
 

@@ -1,6 +1,0 @@
-true print false print
-1 2 > print
-1 2 < print
-
-true false and print
-true false or print

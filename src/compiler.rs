@@ -1,6 +1,6 @@
 use crate::{
-    diagnostic::{Diagnostic, Severity},
-    parser::{Function, Operand, Operation, OperationKind},
+    parser::Operand,
+    type_checker::{CheckedFunction, CheckedOpKind, CheckedOperand, CheckedOperation},
 };
 use std::{
     collections::HashMap,
@@ -12,7 +12,7 @@ use std::{
 pub struct Compiler {
     pub out_file: File,
     next_lambda_label: usize,
-    lambdas: HashMap<Operand, String>,
+    lambdas: HashMap<CheckedOperand, String>,
 }
 
 impl Compiler {
@@ -24,7 +24,7 @@ impl Compiler {
         };
     }
 
-    pub fn compile(&mut self, ops: &Vec<Operation>) -> io::Result<()> {
+    pub fn compile(&mut self, ops: &Vec<CheckedOperation>) -> io::Result<()> {
         //Preamble
         self.out_file.write(b"#include <stdio.h>\n").unwrap();
         self.out_file.write(b"#include <stdint.h>\n").unwrap();
@@ -388,22 +388,22 @@ impl Compiler {
         )?;
 
         for op in ops {
-            self.emit(op)?;
+            self.emit(&op.kind)?;
         }
 
         Ok(())
     }
 
-    fn emit(&mut self, op: &Operation) -> io::Result<()> {
-        match &op.kind {
-            OperationKind::Push { operand } => self.emit_push_operand(operand)?,
-            OperationKind::Pop => {
+    fn emit(&mut self, op_kind: &CheckedOpKind) -> io::Result<()> {
+        match op_kind {
+            CheckedOpKind::Push { operand } => self.emit_push_operand(operand)?,
+            CheckedOpKind::Pop => {
                 self.out_file.write(b"pop();\n")?;
             }
-            OperationKind::Dup => {
+            CheckedOpKind::Dup => {
                 self.out_file.write(b"dup();\n")?;
             }
-            OperationKind::Rot => {
+            CheckedOpKind::Rot => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value c = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -413,7 +413,7 @@ impl Compiler {
                 self.out_file.write(b"        push(a);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Swap => {
+            CheckedOpKind::Swap => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -421,7 +421,7 @@ impl Compiler {
                 self.out_file.write(b"        push(b);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Over => {
+            CheckedOpKind::Over => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -431,7 +431,7 @@ impl Compiler {
                 self.out_file.write(b"        push(_a);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Add => {
+            CheckedOpKind::Add => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -439,7 +439,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 1, b.value + a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Sub => {
+            CheckedOpKind::Sub => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -447,7 +447,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 1, b.value - a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Mul => {
+            CheckedOpKind::Mul => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -455,7 +455,7 @@ impl Compiler {
                     .write(b"        push((Value) { 1, b.value * a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Div => {
+            CheckedOpKind::Div => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -463,7 +463,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 1, b.value / a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Mod => {
+            CheckedOpKind::Mod => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -471,7 +471,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 1, b.value % a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Eq => {
+            CheckedOpKind::Eq => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -479,7 +479,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value == a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Lt => {
+            CheckedOpKind::Lt => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -487,7 +487,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value < a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::LtEq => {
+            CheckedOpKind::LtEq => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -495,7 +495,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value <= a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Gt => {
+            CheckedOpKind::Gt => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -503,7 +503,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value > a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::GtEq => {
+            CheckedOpKind::GtEq => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -511,7 +511,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value >= a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::LogicalAnd => {
+            CheckedOpKind::LogicalAnd => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -519,7 +519,7 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value & a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::LogicalOr => {
+            CheckedOpKind::LogicalOr => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file.write(b"        Value b = pop();\n")?;
@@ -527,51 +527,51 @@ impl Compiler {
                     .write(b"        push((Value)  { 0, b.value | a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::LogicalNot => {
+            CheckedOpKind::LogicalNot => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"        Value a = pop();\n")?;
                 self.out_file
                     .write(b"        push((Value)  { 0, !a.value });\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Print => {
+            CheckedOpKind::Print => {
                 self.out_file.write(b"    print();\n")?;
             }
-            OperationKind::FunctionDefinition { function } => {
+            CheckedOpKind::FunctionDefinition { function } => {
                 self.emit_function_definition(function)?
             }
-            OperationKind::FunctionCall { name } => {
+            CheckedOpKind::FunctionCall { name } => {
                 write!(self.out_file, "    {}();\n", name)?;
             }
-            OperationKind::Map => {
+            CheckedOpKind::Map => {
                 self.out_file.write(b"    map();\n")?;
             }
-            OperationKind::Filter => {
+            CheckedOpKind::Filter => {
                 self.out_file.write(b"    filter();\n")?;
             }
-            OperationKind::Foreach => {
+            CheckedOpKind::Foreach => {
                 self.out_file.write(b"    foreach();\n")?;
             }
-            OperationKind::Fold => {
+            CheckedOpKind::Fold => {
                 self.out_file.write(b"    fold();\n")?;
             }
-            OperationKind::Split => {
+            CheckedOpKind::Split => {
                 self.out_file.write(b"    split();\n")?;
             }
-            OperationKind::Concat => {
+            CheckedOpKind::Concat => {
                 self.out_file.write(b"    concat();\n")?;
             }
-            OperationKind::Partial => {
+            CheckedOpKind::Partial => {
                 self.out_file.write(b"    partial();\n")?;
             }
-            OperationKind::Call => {
+            CheckedOpKind::Call => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"    Value lambda = pop();\n")?;
                 self.out_file
                     .write(b"        (((void (*)(void))lambda.value))();\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Len => {
+            CheckedOpKind::Len => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"    Value array = pop();\n")?;
                 self.out_file
@@ -582,7 +582,7 @@ impl Compiler {
                 )?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Pick => {
+            CheckedOpKind::Pick => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"    Value index = pop();\n")?;
                 self.out_file.write(b"    Value array = pop();\n")?;
@@ -594,7 +594,7 @@ impl Compiler {
                 self.out_file.write(b"        push(el);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::Slice => {
+            CheckedOpKind::Slice => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"    Value upper = pop();\n")?;
                 self.out_file.write(b"    Value lower = pop();\n")?;
@@ -609,13 +609,13 @@ impl Compiler {
                 self.out_file.write(b"        push(array);\n")?;
                 self.out_file.write(b"    }\n")?;
             }
-            OperationKind::If => {
+            CheckedOpKind::If => {
                 self.out_file.write(b"    _if();\n")?;
             }
-            OperationKind::Return => {
+            CheckedOpKind::Return => {
                 self.out_file.write(b"    return;\n")?;
             }
-            OperationKind::Args => {
+            CheckedOpKind::Args => {
                 self.out_file.write(
                     b"{
                         Array *arr = (Array *)malloc(sizeof(Array));
@@ -632,7 +632,7 @@ impl Compiler {
                     }\n",
                 )?;
             }
-            OperationKind::Cons => {
+            CheckedOpKind::Cons => {
                 self.out_file.write(
                     b"{
                         Value a = pop();
@@ -651,7 +651,7 @@ impl Compiler {
                     }\n",
                 )?;
             }
-            OperationKind::Append => {
+            CheckedOpKind::Append => {
                 self.out_file.write(
                 b"{
                         Value array = pop();
@@ -668,7 +668,7 @@ impl Compiler {
                     }\n",
             )?;
             }
-            OperationKind::Range => {
+            CheckedOpKind::Range => {
                 self.out_file.write(
                     b"{
         Value upper = pop();
@@ -687,17 +687,24 @@ impl Compiler {
                     }\n",
                 )?;
             }
-            _ => todo!("{:?}", op),
+            CheckedOpKind::FunctionBaseCaseDefinition { .. } => {}
+            _ => todo!("{:?}", op_kind),
         }
         Ok(())
     }
 
-    fn emit_push_operand(&mut self, operand: &Operand) -> io::Result<()> {
+    fn emit_push_operand(&mut self, operand: &CheckedOperand) -> io::Result<()> {
         match operand {
-            Operand::Bool { value } => write!(self.out_file, "push((Value){{0, {}}});\n", value)?,
-            Operand::Int { value } => write!(self.out_file, "push((Value){{1, {}}});\n", value)?,
-            Operand::Char { value } => write!(self.out_file, "push((Value){{2, {}}});\n", value)?,
-            Operand::Array { values } => {
+            CheckedOperand::Bool { value } => {
+                write!(self.out_file, "push((Value){{0, {}}});\n", value)?
+            }
+            CheckedOperand::Int { value } => {
+                write!(self.out_file, "push((Value){{1, {}}});\n", value)?
+            }
+            CheckedOperand::Char { value } => {
+                write!(self.out_file, "push((Value){{2, {}}});\n", value)?
+            }
+            CheckedOperand::Array { values } => {
                 let length = values.len();
                 self.out_file.write(b"{\n")?;
                 self.out_file
@@ -719,7 +726,7 @@ impl Compiler {
                 self.out_file.write(b"    push((Value){3, (int)arr});\n")?;
                 self.out_file.write(b"}\n")?;
             }
-            Operand::Seq { .. } => {
+            CheckedOperand::Seq { .. } => {
                 let lambda = self
                     .lambdas
                     .get(operand)
@@ -735,7 +742,7 @@ impl Compiler {
                     lambda
                 )?;
             }
-            Operand::String { value } => {
+            CheckedOperand::String { value } => {
                 write!(self.out_file, "push((Value){{5, \"{}\"}});\n", value)?
             }
         }
@@ -754,17 +761,18 @@ impl Compiler {
         }
     }
 
-    fn predefine_lambdas(&mut self, ops: &Vec<Operation>) -> io::Result<()> {
+    fn predefine_lambdas(&mut self, ops: &Vec<CheckedOperation>) -> io::Result<()> {
         for op in ops {
-            if let OperationKind::Push { operand } = &op.kind {
-                if let Operand::Seq { ops: lambda } = operand {
+            if let CheckedOpKind::Push { operand } = &op.kind {
+                //TODO tomorrow: checkedOperand
+                if let CheckedOperand::Seq { ops: lambda } = operand {
                     self.predefine_lambdas(lambda)?;
                     write!(
                         self.out_file,
                         "void lambda_{}() {{\n",
                         self.next_lambda_label
                     )?;
-                    if !self.lambdas.contains_key(operand) {
+                    if !self.lambdas.contains_key(&operand) {
                         self.lambdas.insert(
                             operand.clone(),
                             format!("lambda_{}", self.next_lambda_label),
@@ -772,7 +780,7 @@ impl Compiler {
                     }
                     self.next_lambda_label += 1;
                     for lambda_op in lambda {
-                        self.emit(&lambda_op)?;
+                        self.emit(&lambda_op.kind)?;
                     }
                     self.out_file.write(b"}\n")?;
                 }
@@ -781,26 +789,38 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_function_definition(&mut self, function: &Function) -> io::Result<()> {
-        if let Operand::Seq { ops } = &function.body {
-            self.predefine_lambdas(ops)?;
+    fn emit_function_definition(&mut self, function: &CheckedFunction) -> io::Result<()> {
+        self.predefine_lambdas(&function.body)?;
 
-            if function.name == "main" {
-                write!(self.out_file, "void main(int argc, char *argv[]) {{\n")?;
-            } else {
-                write!(self.out_file, "void {}() {{\n", function.name)?;
-            }
-            for op in ops {
-                self.emit(&op)?;
-            }
+        if function.name == "main" {
+            write!(self.out_file, "void main(int argc, char *argv[]) {{\n")?;
         } else {
-            unreachable!()
+            write!(self.out_file, "void {}() {{\n", function.name)?;
+        }
+        for base_case in &function.base_cases {
+            write!(self.out_file, "{{\n")?;
+            write!(self.out_file, "Value input = stack[sp - 1];\n")?;
+            write!(
+                self.out_file,
+                "if (input.value == {}) {{\n",
+                base_case.input
+            )?;
+            write!(self.out_file, "pop();\n")?;
+            for op in &base_case.body {
+                self.emit(&op.kind)?;
+            }
+            write!(self.out_file, "return;\n")?;
+            write!(self.out_file, "}}\n")?;
+            write!(self.out_file, "}}\n")?;
+        }
+        for op in &function.body {
+            self.emit(&op.kind)?;
         }
         self.out_file.write(b"}\n")?;
         Ok(())
     }
 
-    fn emit_operand_array(&mut self, values: &[Operand]) -> io::Result<()> {
+    fn emit_operand_array(&mut self, values: &[CheckedOperand]) -> io::Result<()> {
         self.out_file.write(b"{")?;
         for (i, operand) in values.into_iter().enumerate() {
             self.emit_operand(operand)?;
@@ -812,12 +832,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_operand(&mut self, operand: &Operand) -> io::Result<()> {
+    fn emit_operand(&mut self, operand: &CheckedOperand) -> io::Result<()> {
         match operand {
-            Operand::Bool { value } => write!(self.out_file, "(Value){{0, {}}}", value)?,
-            Operand::Int { value } => write!(self.out_file, "(Value){{1, {}}}", value)?,
-            Operand::Char { value } => write!(self.out_file, "(Value){{2, {}}}", value)?,
-            Operand::Array { values } => {
+            CheckedOperand::Bool { value } => write!(self.out_file, "(Value){{0, {}}}", value)?,
+            CheckedOperand::Int { value } => write!(self.out_file, "(Value){{1, {}}}", value)?,
+            CheckedOperand::Char { value } => write!(self.out_file, "(Value){{2, {}}}", value)?,
+            CheckedOperand::Array { values } => {
                 let length = values.len();
                 self.out_file.write(b"{")?;
                 self.out_file.write(b"    Array arr;")?;
@@ -827,8 +847,8 @@ impl Compiler {
                 self.out_file.write(b";\n")?;
                 self.out_file.write(b"    arr.data = data;\n")?;
             }
-            Operand::Seq { ops } => todo!(),
-            Operand::String { value } => todo!(),
+            CheckedOperand::Seq { ops } => todo!(),
+            CheckedOperand::String { value } => todo!(),
         }
         Ok(())
     }

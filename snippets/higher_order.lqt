@@ -1,0 +1,9 @@
+let applytwice int (int -> int) -> int (
+    dup rot swap call
+    swap call
+)
+let square int -> int (dup *)
+
+let main -> (
+    3 (square) applytwice print
+)

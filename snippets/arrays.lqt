@@ -11,7 +11,7 @@ let main -> (
 
     [1 2 3] dup print print
 
-    [1 2 3]
-        (2 =) split
+    0 10 range
+        (2 % 0 =) split
     print print
 )

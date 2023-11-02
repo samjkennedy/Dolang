@@ -2,13 +2,13 @@ pub mod compiler;
 pub mod diagnostic;
 pub mod lexer;
 pub mod parser;
-pub mod type_checker_2;
+pub mod type_checker;
 
 use crate::compiler::*;
 use crate::diagnostic::*;
 use crate::lexer::*;
 use crate::parser::*;
-use crate::type_checker_2::*;
+use crate::type_checker::*;
 
 use std::env;
 use std::fs;
@@ -60,45 +60,40 @@ fn main() {
     }
     //println!("{:#?}", ops);
 
-    let enable_type_checking = true;
-
-    let mut type_checker = TypeChecker2::new();
+    let mut type_checker = TypeChecker::new();
 
     let mut clean = true;
-    if enable_type_checking {
-        if let Err(d) = type_checker.check_program(&ops) {
-            clean = false;
+    match type_checker.check_program(&ops) {
+        Ok(checked_ops) => {
+            let c_file_name = Path::new(file_path)
+                .with_extension("c")
+                .file_name()
+                .expect("todo")
+                .to_owned();
+            let out_file = File::create(&c_file_name).expect("could not open file");
+            let mut compiler = Compiler::new(out_file);
+            if compiler.compile(&checked_ops).is_err() {
+                panic!();
+            }
+            Command::new("gcc")
+                .arg("-o")
+                .arg(
+                    Path::new(file_path)
+                        .with_extension("")
+                        .file_name()
+                        .expect("todo"),
+                )
+                .arg(&c_file_name)
+                .output()
+                .expect("couldn't make executable");
+            // fs::remove_file(c_file_name.clone()).expect(&format!(
+            //     "Couldn't remove intermediate c file {:?}",
+            //     c_file_name
+            // ));
+        }
+        Err(d) => {
             diag.report(&d.loc, d.severity, &d.message, d.hint.as_deref());
+            return;
         }
     }
-
-    if !clean {
-        return;
-    }
-
-    let c_file_name = Path::new(file_path)
-        .with_extension("c")
-        .file_name()
-        .expect("todo")
-        .to_owned();
-    let out_file = File::create(&c_file_name).expect("could not open file");
-    let mut compiler = Compiler::new(out_file);
-    if compiler.compile(&ops).is_err() {
-        panic!();
-    }
-    Command::new("gcc")
-        .arg("-o")
-        .arg(
-            Path::new(file_path)
-                .with_extension("")
-                .file_name()
-                .expect("todo"),
-        )
-        .arg(&c_file_name)
-        .output()
-        .expect("couldn't make executable");
-    fs::remove_file(c_file_name.clone()).expect(&format!(
-        "Couldn't remove intermediate c file {:?}",
-        c_file_name
-    ));
 }
