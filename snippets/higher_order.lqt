@@ -1,9 +1,20 @@
-let applytwice int (int -> int) -> int (
+let applytwice 'a ('a -> 'a) -> 'a (
     dup rot swap call
     swap call
 )
 let square int -> int (dup *)
+let negate bool -> bool (not)
+
+let 
 
 let main -> (
-    3 (square) applytwice print
+    5 (square) applytwice print
+
+    0 11 range
+        ((square) applytwice) map
+        print
+
+    [true false true false]
+        ((negate) applytwice) map
+        print
 )
