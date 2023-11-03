@@ -1,0 +1,15 @@
+let square n: int -> int (n n *)
+let mul a: int b: int -> int (a b *)
+
+let shadow n: int -> (
+    n print
+    n 10 mul set n (
+        n print
+    )
+    n print
+)
+
+let main -> (
+    5 2 mul square print
+    5 shadow
+)

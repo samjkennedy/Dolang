@@ -88,7 +88,11 @@ pub enum TypeExpressionKind {
     }, //Array { }
     Generic {
         identifier: String,
-    }, //Pattern, //TODO
+    },
+    Variable {
+        identifier: String,
+        expression: Box<TypeExpression>,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -417,6 +421,7 @@ impl Parser {
             | TokenKind::CloseParen
             | TokenKind::Whitespace
             | TokenKind::Arrow
+            | TokenKind::Colon
             | TokenKind::EOF => Err(Diagnostic {
                 severity: Severity::Error,
                 loc: next.loc.clone(),
@@ -430,6 +435,35 @@ impl Parser {
         let tok = &self.tokens[self.cursor].clone();
         match tok.kind {
             TokenKind::Identifier { .. } => {
+                if self.cursor + 1 < self.tokens.len()
+                    && &self.tokens[self.cursor + 1].kind == &TokenKind::Colon
+                {
+                    let identifier = tok.text.clone();
+                    self.cursor += 1;
+
+                    self.expect_token(TokenKind::Colon)?;
+
+                    let expression = self.parse_type_expression()?;
+
+                    if let TypeExpressionKind::Variable { .. } = expression.kind {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: tok.loc.clone(),
+                            message: format!(
+                                "Multiple variable bindings per argument is not supported"
+                            ),
+                            hint: None,
+                        });
+                    }
+                    return Ok(TypeExpression {
+                        kind: TypeExpressionKind::Variable {
+                            identifier,
+                            expression: Box::new(expression),
+                        },
+                        loc: tok.loc.clone(),
+                    });
+                }
+
                 let type_expression = TypeExpression {
                     kind: TypeExpressionKind::Identifier {
                         text: tok.text.clone(),

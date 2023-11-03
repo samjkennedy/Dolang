@@ -699,7 +699,7 @@ impl Compiler {
                 write!(self.out_file, "}}\n")?;
             }
             CheckedOpKind::Variable { name } => {
-                    write!(self.out_file, "push({});\n", name)?;
+                write!(self.out_file, "push({});\n", name)?;
             }
             _ => todo!("{:?}", op_kind),
         }

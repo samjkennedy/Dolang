@@ -388,9 +388,22 @@ impl TypeChecker {
                 function_type_checker.variables = self.variables.clone();
 
                 let mut inputs: Vec<TypeToken> = vec![];
+                let mut input_bindings: Vec<String> = vec![];
                 for input in &function.ins {
-                    let typ = function_type_checker.get_type(input, &mut inputs)?;
-                    inputs.push(typ);
+                    if let TypeExpressionKind::Variable {
+                        identifier,
+                        expression,
+                    } = &input.kind
+                    {
+                        input_bindings.push(identifier.to_string());
+                        let typ = function_type_checker.get_type(expression, &mut inputs)?;
+                        function_type_checker
+                            .variables
+                            .insert(identifier.to_string(), typ.clone());
+                    } else {
+                        let typ = function_type_checker.get_type(input, &mut inputs)?;
+                        inputs.push(typ);
+                    }
                 }
                 for input in &inputs {
                     function_type_checker.type_stack.push(input.clone());
@@ -412,8 +425,9 @@ impl TypeChecker {
                         base_cases: vec![],
                     },
                 );
+
                 if let Operand::Seq { ops } = &function.body {
-                    let checked_body = function_type_checker.check_program(ops)?;
+                    let mut checked_body = function_type_checker.check_program(ops)?;
 
                     let end_type_stack = function_type_checker.type_stack.clone();
                     for output_type in outputs.clone().into_iter().rev() {
@@ -455,6 +469,24 @@ impl TypeChecker {
                         Some(base_cases) => base_cases.to_vec(),
                         None => vec![],
                     };
+
+                    if !input_bindings.is_empty() {
+                        let mut bindings_in = vec![];
+                        for binding in &input_bindings {
+                            let typ = function_type_checker.variables.get(binding).unwrap().kind.clone();
+                            bindings_in.push(typ);
+                        }
+                        checked_body = vec![CheckedOperation {
+                            kind: CheckedOpKind::Binding {
+                                names: input_bindings,
+                                body: checked_body,
+                            },
+                            loc: op.loc.clone(),
+                            ins: bindings_in,
+                            outs: vec![],
+                        }];
+                    }
+
                     let checked_function = CheckedFunction {
                         name: function.name.clone(),
                         ins: inputs,
@@ -464,6 +496,7 @@ impl TypeChecker {
                     };
                     self.functions
                         .insert(function.name.clone(), checked_function.clone());
+
 
                     return Ok(CheckedOperation {
                         kind: CheckedOpKind::FunctionDefinition {
@@ -486,16 +519,16 @@ impl TypeChecker {
                 binding_type_checker.variables = self.variables.clone();
 
                 for (i, binding) in bindings.into_iter().rev().enumerate() {
+                    // If you want to disallow shadowing in future, uncomment this block
 
-                    //TODO: could avoid this check and allow shadowing?
-                    if self.variables.contains_key(&binding.text) {
-                        return Err(Diagnostic {
-                            severity: Severity::Error,
-                            loc: binding.loc.clone(),
-                            message: format!("Binding `{}` is already defined", binding.text),
-                            hint: Some(format!("Binding `{}` originally defined at {}", binding.text, self.variables.get(&binding.text).unwrap().introduced_at))
-                        });
-                    }
+                    // if self.variables.contains_key(&binding.text) {
+                    //     return Err(Diagnostic {
+                    //         severity: Severity::Error,
+                    //         loc: binding.loc.clone(),
+                    //         message: format!("Binding `{}` is already defined", binding.text),
+                    //         hint: Some(format!("Binding `{}` originally defined at {}", binding.text, self.variables.get(&binding.text).unwrap().introduced_at))
+                    //     });
+                    // }
                     if self.type_stack.len() <= i {
                         return Err(Diagnostic {
                             severity: Severity::Error,
@@ -507,12 +540,13 @@ impl TypeChecker {
                     let binding_type = self.type_stack[self.type_stack.len() - i - 1].kind.clone();
                     ins.push(binding_type.clone());
 
-                    binding_type_checker
-                        .variables
-                        .insert(binding.text.clone(), TypeToken {
+                    binding_type_checker.variables.insert(
+                        binding.text.clone(),
+                        TypeToken {
                             kind: binding_type,
                             introduced_at: binding.loc.clone(),
-                        });
+                        },
+                    );
 
                     names.push(binding.text.clone());
                 }
@@ -896,6 +930,7 @@ impl TypeChecker {
                 })
             }
             OperationKind::Call => {
+                //TODO: This prevents calls from being type checked inside lambdas, really it needs a fn ('a.. -> 'b..) varargs type
                 //peek behind at the function before
                 if self.type_stack.is_empty() {
                     return Err(Diagnostic {
@@ -1140,6 +1175,12 @@ impl TypeChecker {
                     },
                     introduced_at: type_expression.loc.clone(),
                 });
+            }
+            TypeExpressionKind::Variable {
+                identifier,
+                expression,
+            } => {
+                unreachable!("Should be handled by the caller")
             }
             _ => {
                 return Err(Diagnostic {
