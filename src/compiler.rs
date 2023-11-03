@@ -688,6 +688,19 @@ impl Compiler {
                 )?;
             }
             CheckedOpKind::FunctionBaseCaseDefinition { .. } => {}
+            CheckedOpKind::Binding { names, body } => {
+                write!(self.out_file, "{{\n")?;
+                for name in names.into_iter() {
+                    write!(self.out_file, "Value {} = pop();\n", name)?;
+                }
+                for op in body {
+                    self.emit(&op.kind)?;
+                }
+                write!(self.out_file, "}}\n")?;
+            }
+            CheckedOpKind::Variable { name } => {
+                    write!(self.out_file, "push({});\n", name)?;
+            }
             _ => todo!("{:?}", op_kind),
         }
         Ok(())

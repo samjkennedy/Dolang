@@ -93,6 +93,7 @@ pub struct TypeChecker {
     base_cases: HashMap<String, Vec<BaseCase>>,
     generics: HashMap<String, TypeKind>,
     generic_index: usize,
+    variables: HashMap<String, TypeToken>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -107,15 +108,30 @@ pub enum CheckedOperand {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CheckedOpKind {
-    Push { operand: CheckedOperand },
+    Push {
+        operand: CheckedOperand,
+    },
     Pop,
     Swap,
     Dup,
     Over,
     Rot,
-    FunctionDefinition { function: CheckedFunction },
-    FunctionBaseCaseDefinition { base_case: BaseCase },
-    FunctionCall { name: String },
+    FunctionDefinition {
+        function: CheckedFunction,
+    },
+    FunctionBaseCaseDefinition {
+        base_case: BaseCase,
+    },
+    FunctionCall {
+        name: String,
+    },
+    Binding {
+        names: Vec<String>,
+        body: Vec<CheckedOperation>,
+    },
+    Variable {
+        name: String,
+    },
     Add,
     Sub,
     Mul,
@@ -159,6 +175,7 @@ impl TypeChecker {
             generics: HashMap::new(),
             generic_index: 0,
             base_cases: HashMap::new(),
+            variables: HashMap::new(),
         };
     }
 
@@ -174,7 +191,7 @@ impl TypeChecker {
             // println!("checked op: {:?}", checked_op);
 
             let mut generics = HashMap::new();
-            if let OperationKind::FunctionCall {..} = op.kind {
+            if let CheckedOpKind::FunctionCall { .. } = &checked_op.kind {
                 generics = self.generics.clone();
             }
 
@@ -190,13 +207,13 @@ impl TypeChecker {
                     introduced_at: op.loc.clone(),
                 });
             }
+
+            if let CheckedOpKind::FunctionCall { .. } = &checked_op.kind {
+                self.generics = generics;
+            }
             // println!("stack: {:?}", self.type_stack);
             // println!("------------");
             checked_ops.push(checked_op);
-
-            if let OperationKind::FunctionCall {..} = op.kind {
-                self.generics = generics;
-            }
         }
         Ok(checked_ops)
     }
@@ -368,6 +385,7 @@ impl TypeChecker {
                 }
                 let mut function_type_checker = TypeChecker::new();
                 function_type_checker.functions = self.functions.clone();
+                function_type_checker.variables = self.variables.clone();
 
                 let mut inputs: Vec<TypeToken> = vec![];
                 for input in &function.ins {
@@ -459,7 +477,74 @@ impl TypeChecker {
                     unreachable!("Function body must be a sequence")
                 }
             }
-            OperationKind::FunctionCall { name } => {
+            OperationKind::Binding { bindings, body } => {
+                let mut ins: Vec<TypeKind> = vec![];
+                let mut names: Vec<String> = vec![];
+
+                let mut binding_type_checker = TypeChecker::new();
+                binding_type_checker.functions = self.functions.clone();
+                binding_type_checker.variables = self.variables.clone();
+
+                for (i, binding) in bindings.into_iter().rev().enumerate() {
+
+                    //TODO: could avoid this check and allow shadowing?
+                    if self.variables.contains_key(&binding.text) {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: binding.loc.clone(),
+                            message: format!("Binding `{}` is already defined", binding.text),
+                            hint: Some(format!("Binding `{}` originally defined at {}", binding.text, self.variables.get(&binding.text).unwrap().introduced_at))
+                        });
+                    }
+                    if self.type_stack.len() <= i {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: binding.loc.clone(),
+                            message: format!("Expected value but the type stack was empty",),
+                            hint: None,
+                        });
+                    }
+                    let binding_type = self.type_stack[self.type_stack.len() - i - 1].kind.clone();
+                    ins.push(binding_type.clone());
+
+                    binding_type_checker
+                        .variables
+                        .insert(binding.text.clone(), TypeToken {
+                            kind: binding_type,
+                            introduced_at: binding.loc.clone(),
+                        });
+
+                    names.push(binding.text.clone());
+                }
+
+                if let Operand::Seq { ops } = &body {
+                    let checked_body = binding_type_checker.check_program(ops)?;
+
+                    return Ok(CheckedOperation {
+                        kind: CheckedOpKind::Binding {
+                            names,
+                            body: checked_body,
+                        },
+                        loc: op.loc.clone(),
+                        ins,
+                        outs: vec![],
+                    });
+                } else {
+                    unreachable!("Binding body must be a sequence")
+                }
+            }
+            OperationKind::FunctionCallOrVariable { name } => {
+                if self.variables.contains_key(name) {
+                    let variable = self.variables.get(name).unwrap();
+                    return Ok(CheckedOperation {
+                        kind: CheckedOpKind::Variable {
+                            name: name.to_string(),
+                        },
+                        loc: op.loc.clone(),
+                        ins: vec![],
+                        outs: vec![variable.kind.clone()],
+                    });
+                }
                 if self.functions.contains_key(name) {
                     let function = self.functions.get(name).unwrap();
 
@@ -488,7 +573,7 @@ impl TypeChecker {
                     return Err(Diagnostic {
                         severity: Severity::Error,
                         loc: op.loc.clone(),
-                        message: format!("Function `{}` is not defined", name),
+                        message: format!("Function or binding `{}` is not defined", name),
                         hint: None,
                     });
                 }
@@ -856,6 +941,7 @@ impl TypeChecker {
 
                 let mut function_type_checker = TypeChecker::new();
                 function_type_checker.functions = self.functions.clone();
+                function_type_checker.variables = self.variables.clone();
 
                 let mut inputs = vec![TypeToken {
                     kind: TypeKind::Int, //TODO: other types
@@ -1231,6 +1317,7 @@ impl TypeChecker {
             Operand::Seq { ops } => {
                 let mut sub_type_checker = TypeChecker::new();
                 sub_type_checker.functions = self.functions.clone();
+                sub_type_checker.variables = self.variables.clone();
                 sub_type_checker.generics = self.generics.clone();
 
                 let mut inferred_ins: Vec<TypeKind> = vec![];
@@ -1241,7 +1328,7 @@ impl TypeChecker {
                     let checked_op = sub_type_checker.check_op(op)?;
                     checked_ops.push(checked_op.clone());
 
-                    for input in checked_op.ins {
+                    for input in &checked_op.ins {
                         //Try to take this op's input from the previous output
                         if inferred_outs.is_empty()
                             || !sub_type_checker
@@ -1253,7 +1340,7 @@ impl TypeChecker {
                                 .is_ok()
                         {
                             //If we can't, then infer it as an input to the function
-                            inferred_ins.push(input);
+                            inferred_ins.push(input.clone());
                         } else {
                             //otherwise try to consume it from the inferred outputs
                             sub_type_checker.types_equal(
