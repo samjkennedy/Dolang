@@ -31,7 +31,8 @@ pub enum OperationKind {
     Rot,
     FunctionDefinition { function: Function },
     FunctionBaseCaseDefinition { function: Function },
-    FunctionCall { name: String },
+    FunctionCallOrVariable { name: String },
+    Binding { bindings: Vec<Token>, body: Operand },
     Add,
     Sub,
     Mul,
@@ -87,8 +88,7 @@ pub enum TypeExpressionKind {
     }, //Array { }
     Generic {
         identifier: String,
-    }
-       //Pattern, //TODO
+    }, //Pattern, //TODO
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -118,7 +118,7 @@ impl Parser {
         self.cursor += 1;
         match next.kind.clone() {
             TokenKind::Identifier { text } => Ok(Operation {
-                kind: OperationKind::FunctionCall { name: text },
+                kind: OperationKind::FunctionCallOrVariable { name: text },
                 loc: next.loc.clone(),
             }),
             TokenKind::IntLiteral { value } => Ok(Operation {
@@ -372,6 +372,35 @@ impl Parser {
                     });
                 }
             }
+            TokenKind::SetKeyword => {
+                let mut bindings: Vec<Token> = vec![];
+
+                while self.cursor < self.tokens.len()
+                    && &self.tokens[self.cursor].kind != &TokenKind::OpenParen
+                {
+                    let actual = &self.tokens[self.cursor].clone();
+                    if let TokenKind::Identifier { text } = &actual.kind {
+                        bindings.push(actual.clone());
+                        self.cursor += 1;
+                    } else {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            loc: actual.loc.clone(),
+                            message: format!("Expected identifier but got `{:?}", actual.kind),
+                            hint: None,
+                        });
+                    }
+                }
+                self.cursor += 1;
+
+                //Parse body
+                let body = self.parse_seq()?;
+
+                return Ok(Operation {
+                    kind: OperationKind::Binding { bindings, body },
+                    loc: next.loc.clone(),
+                });
+            }
             TokenKind::IfKeyword => Ok(Operation {
                 kind: OperationKind::If,
                 loc: next.loc.clone(),
@@ -447,7 +476,7 @@ impl Parser {
                     kind: TypeExpressionKind::Function { ins, outs },
                     loc: tok.loc.clone(),
                 });
-            },
+            }
             TokenKind::CharLiteral { value } => {
                 let type_expression = TypeExpression {
                     kind: TypeExpressionKind::Generic {
