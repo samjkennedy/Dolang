@@ -1,4 +1,4 @@
-let small? int array -> bool (
+let small int array -> bool (
     dup len 0 =
     swap
     len 1 =

@@ -185,10 +185,7 @@ impl TypeChecker {
     ) -> Result<Vec<CheckedOperation>, Diagnostic> {
         let mut checked_ops: Vec<CheckedOperation> = vec![];
         for op in ops {
-            // println!("stack: {:?}", self.type_stack);
-            // println!("op: {:?}", op);
             let checked_op = self.check_op(op)?;
-            // println!("checked op: {:?}", checked_op);
 
             let mut generics = HashMap::new();
             if let CheckedOpKind::FunctionCall { .. } = &checked_op.kind {
@@ -197,8 +194,6 @@ impl TypeChecker {
 
             //manipulate stack
             for input in &checked_op.ins {
-                // println!("checking input: {:?}", input);
-                // println!("stack: {:?}", self.type_stack);
                 self.expect_type(input, op.loc.clone())?;
             }
             for output in &checked_op.outs {
@@ -211,8 +206,6 @@ impl TypeChecker {
             if let CheckedOpKind::FunctionCall { .. } = &checked_op.kind {
                 self.generics = generics;
             }
-            // println!("stack: {:?}", self.type_stack);
-            // println!("------------");
             checked_ops.push(checked_op);
         }
         Ok(checked_ops)
@@ -388,9 +381,26 @@ impl TypeChecker {
                 function_type_checker.variables = self.variables.clone();
 
                 let mut inputs: Vec<TypeToken> = vec![];
+                let mut input_bindings: Vec<Token> = vec![];
                 for input in &function.ins {
-                    let typ = function_type_checker.get_type(input, &mut inputs)?;
-                    inputs.push(typ);
+                    if let TypeExpressionKind::Variable {
+                        identifier,
+                        expression,
+                    } = &input.kind
+                    {
+                        input_bindings.push(Token {
+                            kind: TokenKind::Identifier {
+                                text: identifier.to_string(),
+                            },
+                            text: identifier.to_string(),
+                            loc: input.loc.clone(),
+                        });
+                        let typ = function_type_checker.get_type(expression, &mut inputs)?;
+                        inputs.push(typ);
+                    } else {
+                        let typ = function_type_checker.get_type(input, &mut inputs)?;
+                        inputs.push(typ);
+                    }
                 }
                 for input in &inputs {
                     function_type_checker.type_stack.push(input.clone());
@@ -412,8 +422,19 @@ impl TypeChecker {
                         base_cases: vec![],
                     },
                 );
+
                 if let Operand::Seq { ops } = &function.body {
-                    let checked_body = function_type_checker.check_program(ops)?;
+                    let body = match input_bindings {
+                        x if x == [] => ops.to_vec(),
+                        _ => vec![Operation {
+                            kind: OperationKind::Binding {
+                                bindings: input_bindings,
+                                body: function.body.clone(), //oof
+                            },
+                            loc: ops[0].loc.clone(),
+                        }],
+                    };
+                    let checked_body = function_type_checker.check_program(&body)?;
 
                     let end_type_stack = function_type_checker.type_stack.clone();
                     for output_type in outputs.clone().into_iter().rev() {
@@ -421,10 +442,10 @@ impl TypeChecker {
                             .expect_type(&output_type.kind, output_type.introduced_at)?;
                     }
 
-                    if !function_type_checker.type_stack.is_empty() && !outputs.is_empty() {
+                    if function_type_checker.type_stack != outputs {
                         return Err(Diagnostic {
                             severity: Severity::Error,
-                            loc: outputs[outputs.len() - 1].introduced_at.clone(),
+                            loc: op.loc.clone(),
                             message: format!(
                                 "Type stack at the end of `{}` does not match signature `[{}] -> [{}]`",
                                 function.name,
@@ -455,6 +476,7 @@ impl TypeChecker {
                         Some(base_cases) => base_cases.to_vec(),
                         None => vec![],
                     };
+
                     let checked_function = CheckedFunction {
                         name: function.name.clone(),
                         ins: inputs,
@@ -486,14 +508,18 @@ impl TypeChecker {
                 binding_type_checker.variables = self.variables.clone();
 
                 for (i, binding) in bindings.into_iter().rev().enumerate() {
-
-                    //TODO: could avoid this check and allow shadowing?
-                    if self.variables.contains_key(&binding.text) {
+                    //Currently the compilation stage cannot handle shadowing, this is entirely fixable but I can't be bothered right now
+                    // If you want to allow shadowing in future, remove this block
+                    if binding_type_checker.variables.contains_key(&binding.text) {
                         return Err(Diagnostic {
                             severity: Severity::Error,
                             loc: binding.loc.clone(),
                             message: format!("Binding `{}` is already defined", binding.text),
-                            hint: Some(format!("Binding `{}` originally defined at {}", binding.text, self.variables.get(&binding.text).unwrap().introduced_at))
+                            hint: Some(format!(
+                                "Binding `{}` originally defined at {}",
+                                binding.text,
+                                self.variables.get(&binding.text).unwrap().introduced_at
+                            )),
                         });
                     }
                     if self.type_stack.len() <= i {
@@ -507,12 +533,13 @@ impl TypeChecker {
                     let binding_type = self.type_stack[self.type_stack.len() - i - 1].kind.clone();
                     ins.push(binding_type.clone());
 
-                    binding_type_checker
-                        .variables
-                        .insert(binding.text.clone(), TypeToken {
+                    binding_type_checker.variables.insert(
+                        binding.text.clone(),
+                        TypeToken {
                             kind: binding_type,
                             introduced_at: binding.loc.clone(),
-                        });
+                        },
+                    );
 
                     names.push(binding.text.clone());
                 }
@@ -527,7 +554,11 @@ impl TypeChecker {
                         },
                         loc: op.loc.clone(),
                         ins,
-                        outs: vec![],
+                        outs: binding_type_checker
+                            .type_stack
+                            .into_iter()
+                            .map(|t| t.kind)
+                            .collect::<Vec<TypeKind>>(),
                     });
                 } else {
                     unreachable!("Binding body must be a sequence")
@@ -713,8 +744,17 @@ impl TypeChecker {
                     ],
                 })
             }
+            OperationKind::Args => Ok(CheckedOperation {
+                kind: CheckedOpKind::Args,
+                loc: op.loc.clone(),
+                ins: vec![],
+                outs: vec![TypeKind::Array {
+                    el_type: Box::new(TypeKind::Char),
+                }],
+            }),
             OperationKind::Partial => {
                 //peek behind at the function before
+                //TODO: This doesn't work in a sequence context, need a varargs function type fn('a.. -> 'b..)
                 if self.type_stack.is_empty() {
                     return Err(Diagnostic {
                         severity: Severity::Error,
@@ -780,10 +820,11 @@ impl TypeChecker {
                         hint: None,
                     });
                 }
+                let true_branch = self.type_stack[self.type_stack.len() - 1].kind.clone();
                 if let TypeKind::Function {
                     ins: true_ins,
                     outs: true_outs,
-                } = self.type_stack[self.type_stack.len() - 1].kind.clone()
+                } = true_branch
                 {
                     if self.type_stack.len() == 1 {
                         return Err(Diagnostic {
@@ -793,31 +834,52 @@ impl TypeChecker {
                             hint: None,
                         });
                     }
+                    let false_branch = self.type_stack[self.type_stack.len() - 2].kind.clone();
                     if let TypeKind::Function {
                         ins: false_ins,
                         outs: false_outs,
-                    } = self.type_stack[self.type_stack.len() - 2].kind.clone()
+                    } = false_branch
                     {
-                        if true_ins.len() != false_ins.len() || true_outs.len() != false_outs.len()
-                        {
-                            return Err(Diagnostic {
-                                severity: Severity::Error,
-                                loc: op.loc.clone(),
-                                message: format!(
-                                    "Branches in `if` function must have the same signature.\n\ttrue:  `{}`\n\tfalse: `{}`",
-                                    format!("fn [{}] -> [{}]", 
-                                        true_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "), 
-                                        true_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
-                                    ),
-                                    format!("fn [{}] -> [{}]", 
-                                        false_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "), 
-                                        false_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
-                                    ),
-                                ),
-                                hint: None,
-                            });
-                        }
-                        todo!()
+                        //TODO: it's not correct to just compare ins and outs, you need to simulate the stack for both and make sure they lead to the same stack
+                        //      e.g. if true is [] -> [] and false is [int] -> [int] this is valid
+                        // if true_ins.len() != false_ins.len() || true_outs.len() != false_outs.len()
+                        // {
+                        //     return Err(Diagnostic {
+                        //         severity: Severity::Error,
+                        //         loc: op.loc.clone(),
+                        //         message: format!(
+                        //             "Branches in `if` function must have the same signature.\n\ttrue:  `{}`\n\tfalse: `{}`",
+                        //             format!("fn [{}] -> [{}]",
+                        //                 true_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "),
+                        //                 true_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
+                        //             ),
+                        //             format!("fn [{}] -> [{}]",
+                        //                 false_ins.into_iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", "),
+                        //                 false_outs.into_iter().map(|o| o.to_string()).collect::<Vec<String>>().join(", ")
+                        //             ),
+                        //         ),
+                        //         hint: None,
+                        //     });
+                        // }
+                        let mut ins = vec![];
+                        ins.append(&mut vec![
+                            TypeKind::Function {
+                                ins: true_ins.clone(),
+                                outs: true_outs.clone(),
+                            },
+                            TypeKind::Function {
+                                ins: false_ins,
+                                outs: false_outs,
+                            },
+                            TypeKind::Bool,
+                        ]);
+                        ins.append(&mut true_ins.clone());
+                        Ok(CheckedOperation {
+                            kind: CheckedOpKind::If,
+                            loc: op.loc.clone(),
+                            ins,
+                            outs: true_outs,
+                        })
                     } else {
                         return Err(Diagnostic {
                             severity: Severity::Error,
@@ -896,6 +958,7 @@ impl TypeChecker {
                 })
             }
             OperationKind::Call => {
+                //TODO: This prevents calls from being type checked inside lambdas, really it needs a fn ('a.. -> 'b..) varargs type
                 //peek behind at the function before
                 if self.type_stack.is_empty() {
                     return Err(Diagnostic {
@@ -1141,6 +1204,12 @@ impl TypeChecker {
                     introduced_at: type_expression.loc.clone(),
                 });
             }
+            TypeExpressionKind::Variable {
+                identifier,
+                expression,
+            } => {
+                unreachable!("Should be handled by the caller")
+            }
             _ => {
                 return Err(Diagnostic {
                     severity: Severity::Error,
@@ -1363,7 +1432,14 @@ impl TypeChecker {
                     },
                 )
             }
-            Operand::String { .. } => todo!(),
+            Operand::String { value } => (
+                CheckedOperand::String {
+                    value: value.to_string(),
+                },
+                TypeKind::Array {
+                    el_type: Box::new(TypeKind::Char),
+                },
+            ),
         };
         Ok((checked_operand, push_type))
     }

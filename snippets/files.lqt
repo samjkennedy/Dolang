@@ -1,5 +1,3 @@
-let fopen 
-
-"out.txt" &fo
-    "Hello from Loquat!" &fw
-&fc
+let main -> (
+    args 1 pick
+)

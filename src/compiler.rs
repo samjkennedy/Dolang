@@ -13,6 +13,7 @@ pub struct Compiler {
     pub out_file: File,
     next_lambda_label: usize,
     lambdas: HashMap<CheckedOperand, String>,
+    bindings: Vec<String>,
 }
 
 impl Compiler {
@@ -21,6 +22,7 @@ impl Compiler {
             out_file,
             next_lambda_label: 0,
             lambdas: HashMap::new(),
+            bindings: vec![],
         };
     }
 
@@ -47,6 +49,9 @@ impl Compiler {
         self.out_file.write(b"#define STACK_CAPACITY 0x8000\n")?;
         self.out_file.write(b"Value stack[STACK_CAPACITY];\n")?;
         self.out_file.write(b"int sp = 0;\n")?;
+        self.out_file
+            .write(b"Value return_stack[STACK_CAPACITY];\n")?;
+        self.out_file.write(b"int rsp = 0;\n")?;
 
         //Define intrinsics
         //TODO: Bounds checking
@@ -152,6 +157,10 @@ impl Compiler {
         self.out_file.write(b"    case 1:\n")?;
         self.out_file
             .write(b"      printf(\"%d\\n\", v.value);\n")?;
+        self.out_file.write(b"      break;\n")?;
+        self.out_file.write(b"    case 2:\n")?;
+        self.out_file
+            .write(b"      printf(\"%c\\n\", v.value);\n")?;
         self.out_file.write(b"      break;\n")?;
         self.out_file.write(b"    case 3:\n")?;
         self.out_file.write(b"      printArray(v);\n")?;
@@ -692,14 +701,26 @@ impl Compiler {
                 write!(self.out_file, "{{\n")?;
                 for name in names.into_iter() {
                     write!(self.out_file, "Value {} = pop();\n", name)?;
+
+                    write!(self.out_file, "    return_stack[rsp] = {};\n", name)?;
+                    self.out_file.write(b"    rsp += 1;\n")?;
+                    self.bindings.push(name.to_string());
                 }
                 for op in body {
                     self.emit(&op.kind)?;
                 }
+                for _name in names {
+                    self.bindings.pop();
+                    self.out_file.write(b"    rsp -= 1;\n")?;
+                }
                 write!(self.out_file, "}}\n")?;
             }
             CheckedOpKind::Variable { name } => {
-                    write!(self.out_file, "push({});\n", name)?;
+                write!(
+                    self.out_file,
+                    "push(return_stack[{}]);\n",
+                    self.bindings.iter().position(|r| r == name).unwrap()
+                )?;
             }
             _ => todo!("{:?}", op_kind),
         }
@@ -715,7 +736,7 @@ impl Compiler {
                 write!(self.out_file, "push((Value){{1, {}}});\n", value)?
             }
             CheckedOperand::Char { value } => {
-                write!(self.out_file, "push((Value){{2, {}}});\n", value)?
+                write!(self.out_file, "push((Value){{2, '{}'}});\n", value)?
             }
             CheckedOperand::Array { values } => {
                 let length = values.len();
@@ -744,6 +765,9 @@ impl Compiler {
                     .lambdas
                     .get(operand)
                     .expect(&format!("no lambda for operand {:?}", operand));
+                for binding in &self.bindings {
+                    write!(self.out_file, "push({});", binding)?;
+                }
                 write!(
                     self.out_file,
                     "    void (*{}_var)(int) = &{};\n",
@@ -756,7 +780,26 @@ impl Compiler {
                 )?;
             }
             CheckedOperand::String { value } => {
-                write!(self.out_file, "push((Value){{5, \"{}\"}});\n", value)?
+                let length = value.len();
+                self.out_file.write(b"{\n")?;
+                self.out_file
+                    .write(b"    Array *arr = (Array *)malloc(sizeof(Array));\n")?;
+                write!(self.out_file, "    arr->offset = 0;\n")?;
+                write!(self.out_file, "    arr->length = {};\n", length)?;
+                self.out_file.write(b"Value *data;\n")?;
+                write!(
+                    self.out_file,
+                    "    data = (Value *)calloc({}, sizeof(Value));",
+                    length
+                )?;
+                for (i, value) in value.chars().enumerate() {
+                    write!(self.out_file, "    data[{}] = ", i)?;
+                    write!(self.out_file, "(Value){{2, '{}'}}\n", value)?;
+                    self.out_file.write(b";\n")?;
+                }
+                self.out_file.write(b"    arr->data = data;\n")?;
+                self.out_file.write(b"    push((Value){3, (int)arr});\n")?;
+                self.out_file.write(b"}\n")?;
             }
         }
         Ok(())
@@ -770,21 +813,27 @@ impl Compiler {
             Operand::Char { value } => 2,
             Operand::Array { values } => 3,
             Operand::Seq { ops } => 4,
-            Operand::String { value } => 5,
+            Operand::String { value } => 3,
         }
     }
 
-    fn predefine_lambdas(&mut self, ops: &Vec<CheckedOperation>) -> io::Result<()> {
+    fn predefine_lambdas(
+        &mut self,
+        ops: &Vec<CheckedOperation>,
+        bindings: &Vec<String>,
+    ) -> io::Result<()> {
         for op in ops {
             if let CheckedOpKind::Push { operand } = &op.kind {
-                //TODO tomorrow: checkedOperand
                 if let CheckedOperand::Seq { ops: lambda } = operand {
-                    self.predefine_lambdas(lambda)?;
+                    self.predefine_lambdas(lambda, &bindings)?;
                     write!(
                         self.out_file,
                         "void lambda_{}() {{\n",
                         self.next_lambda_label
                     )?;
+                    for binding in bindings.into_iter().rev() {
+                        write!(self.out_file, "Value {} = pop();\n", binding)?;
+                    }
                     if !self.lambdas.contains_key(&operand) {
                         self.lambdas.insert(
                             operand.clone(),
@@ -798,12 +847,16 @@ impl Compiler {
                     self.out_file.write(b"}\n")?;
                 }
             }
+            if let CheckedOpKind::Binding { names, body } = &op.kind {
+                self.predefine_lambdas(&body, names)?;
+            }
         }
         Ok(())
     }
 
     fn emit_function_definition(&mut self, function: &CheckedFunction) -> io::Result<()> {
-        self.predefine_lambdas(&function.body)?;
+        let bindings: Vec<String> = vec![];
+        self.predefine_lambdas(&function.body, &bindings)?;
 
         if function.name == "main" {
             write!(self.out_file, "void main(int argc, char *argv[]) {{\n")?;

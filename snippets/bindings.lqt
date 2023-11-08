@@ -20,9 +20,13 @@ let main -> (
         b true and print
     )
 
-    1 set a (
-        2 set a (
+    1 
+    set a (
+        a print
+        2 a +
+        set a (
             a print
         )
+        a print
     )
 )

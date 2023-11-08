@@ -1,6 +1,5 @@
-[1 2 3 4 5 6 7 8 9 10]
-    pop
-
-[true false true true]
-    true (and) fold
-    print
+let main -> (
+    4 5 6
+    + 10 *
+    true false or swap 8 > and
+)
