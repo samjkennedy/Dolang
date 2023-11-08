@@ -1,0 +1,12 @@
+let mapp list: 'a array func: ('a -> 'b) -> 'b array (
+    list func map
+)
+
+let main -> (
+    5 10 range set list (
+        (2 *) set dubble ( 
+            list dubble mapp 
+        )
+    )
+    print
+)

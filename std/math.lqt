@@ -1,0 +1,17 @@
+let square int -> int (dup *)
+
+let isqrtinner int int -> int (
+    over swap dup square >
+        (1 - isqrtinner)
+        (pop)
+    if
+)
+let isqrt int -> int (
+    dup isqrtinner
+)
+
+let main -> (
+    1 26 range
+        (isqrt) map
+        print
+)

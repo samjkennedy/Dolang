@@ -538,6 +538,7 @@ impl Parser {
 
         match &next.kind {
             TokenKind::IntLiteral { value } => Ok(Operand::Int { value: *value }),
+            TokenKind::CharLiteral { value } => Ok(Operand::Char { value: *value }),
             TokenKind::TrueKeyword => Ok(Operand::Bool { value: true }),
             TokenKind::FalseKeyword => Ok(Operand::Bool { value: false }),
             TokenKind::StringLiteral { value } => Ok(Operand::String {
