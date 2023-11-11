@@ -1,7 +1,5 @@
-let add int int -> int (+)
-
 let main -> (
-    5 (add) partial
-    10 swap call 
+    5 (+) 1 partial
+    10 swap do 
     print
 )

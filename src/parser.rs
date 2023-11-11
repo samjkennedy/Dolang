@@ -23,6 +23,7 @@ pub struct Function {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum OperationKind {
+    Nop,
     Push { operand: Operand },
     Pop,
     Swap,
@@ -420,6 +421,10 @@ impl Parser {
             }),
             TokenKind::ArgsKeyword => Ok(Operation {
                 kind: OperationKind::Args,
+                loc: next.loc.clone(),
+            }),
+            TokenKind::Comment { .. } => Ok(Operation {
+                kind: OperationKind::Nop,
                 loc: next.loc.clone(),
             }),
             TokenKind::CloseSquare

@@ -49,8 +49,8 @@ Functions that take functions as their arguments to perform some operation over 
 | fold    | [a] a fn(a a -> a) -> a  | Reduces an array into a single value using an accumulator and a function.                  |
 | foreach | [a] fn(a -> ) ->         | Applies a function to every element of an array.                                           |
 | map     | [a] fn(a -> b) -> [b]    | Applies a function to each element in the array, returning a new array of mapped elements. |
-| call    | a.. fn(a... -> b...) -> b... | Calls the function on the top of the stack, consuming its arguments and placing its returns on the stack. |
-| split    | [a] fn(a -> bool) -> [a] [a] | Splits the list based on the predicate into two lists, with those passing on top. |
+| do      | a.. fn(a... -> b...) -> b... | Calls the function on the top of the stack, consuming its arguments and placing its returns on the stack. |
+| split   | [a] fn(a -> bool) -> [a] [a] | Splits the list based on the predicate into two lists, with those passing on top. |
 
 ## Array functions
 
@@ -62,7 +62,6 @@ Functions that perform operations on arrays
 | len    | [a] -> [a] int         | Pushes the length (number of elements) of an array onto the stack, popping the array.                                |
 | pick   | [a] int -> [a] a       | Pushes the element of the array given by the index on the top of the stack.                                          |
 | slice  | [a] int int -> [a] | Slices an array, pushing a new array given by the indices on top of the stack. These are in the order <start> <end>. |
-| zip    | [a] [a] -> [[a]]   | Joins two arrays elementwise into pairs, the arrays must have the same length.                                       |
 
 ## Control flow
 

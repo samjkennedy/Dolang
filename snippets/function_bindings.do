@@ -4,6 +4,6 @@ let main -> (
             dub map
             print
 
-        6 dub call print
+        6 dub do print
     )
 )

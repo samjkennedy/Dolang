@@ -220,6 +220,12 @@ impl TypeChecker {
 
     fn check_op(&mut self, op: &Operation) -> Result<CheckedOperation, Diagnostic> {
         match &op.kind {
+            OperationKind::Nop => Ok(CheckedOperation {
+                kind: CheckedOpKind::Nop,
+                loc: op.loc.clone(),
+                ins: vec![],
+                outs: vec![],
+            }),
             OperationKind::Dup => {
                 let generic = self.next_generic();
 

@@ -85,10 +85,10 @@ fn main() {
                 .arg(&c_file_name)
                 .output()
                 .expect("couldn't make executable");
-            // fs::remove_file(c_file_name.clone()).expect(&format!(
-            //     "Couldn't remove intermediate c file {:?}",
-            //     c_file_name
-            // ));
+            fs::remove_file(c_file_name.clone()).expect(&format!(
+                "Couldn't remove intermediate c file {:?}",
+                c_file_name
+            ));
         }
         Err(d) => {
             diag.report(&d.loc, d.severity, &d.message, d.hint.as_deref());
