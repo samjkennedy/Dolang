@@ -8,8 +8,8 @@ let main -> (
 
     (dup *)
     set square (
-        5 square call print
-        6 square call print
+        5 square do print
+        6 square do print
     )
 
     6 true
@@ -24,8 +24,9 @@ let main -> (
     set a (
         a print
         2 a +
-        set a (
+        set b (
             a print
+            b print
         )
         a print
     )

@@ -1,6 +1,6 @@
 let applytwice 'in ('in -> 'out) -> 'out (
-    dup rot swap call
-    swap call
+    dup rot swap do
+    swap do
 )
 let square int -> int (dup *)
 let negate bool -> bool (not)

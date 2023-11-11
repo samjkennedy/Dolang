@@ -58,6 +58,7 @@ pub enum TokenKind {
     Arrow,
     ArgsKeyword,
     Whitespace,
+    Comment { text: String },
     EOF,
 }
 
@@ -127,7 +128,22 @@ impl Lexer {
             }
             line = self.lines[self.line].as_bytes();
         }
-
+        if self.line >= self.lines.len() {
+            return Ok(Token {
+                kind: TokenKind::EOF,
+                text: "\0".to_string(),
+                loc: Loc {
+                    path: self.path.clone(),
+                    row: self.line + 1,
+                    col: self.col + 1,
+                },
+            });
+        }
+        if self.col >= line.len() {
+            self.line += 1;
+            self.col = 0;
+            return self.next_token();
+        }
         let c = line[self.col] as char;
 
         let (token, bytes_read) = match c {
@@ -245,7 +261,25 @@ impl Lexer {
                 }
             }
             '*' => self.lex_token(TokenKind::Star, "*".to_owned()),
-            '/' => self.lex_token(TokenKind::Slash, "/".to_owned()),
+            '/' => {
+                if self.peek(line) == '/' {
+                    let (text, bytes_read) = self.take_while(line, |c| true)?;
+                    (
+                        Token {
+                            kind: TokenKind::Comment { text: text.clone() },
+                            text: text.to_string(),
+                            loc: Loc {
+                                path: self.path.clone(),
+                                row: self.line + 1,
+                                col: self.col,
+                            },
+                        },
+                        bytes_read,
+                    )
+                } else {
+                    self.lex_token(TokenKind::Slash, "/".to_owned())
+                }
+            }
             '%' => self.lex_token(TokenKind::Percent, "%".to_owned()),
             '.' => self.lex_token(TokenKind::Dot, ".".to_owned()),
             ':' => self.lex_token(TokenKind::Colon, ":".to_owned()),
@@ -304,16 +338,17 @@ impl Lexer {
                 }
             }
             _ => {
+                self.col += 1;
                 return Err(Diagnostic {
                     severity: Severity::Error,
                     loc: Loc {
                         path: self.path.clone(),
                         row: self.line + 1,
-                        col: self.col + 1,
+                        col: self.col,
                     },
                     message: format!("Unexpected token {}", c),
                     hint: None,
-                })
+                });
             }
         };
         self.col += bytes_read;

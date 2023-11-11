@@ -1,9 +1,9 @@
-let mapp list: 'a array func: ('a -> 'b) -> 'b array (
+let mapp list: 'in array func: ('in -> 'out) -> 'out array ( //a silly example but gets the point across
     list func map
 )
 
 let main -> (
-    [true false] (2 *) 
-        mapp 
+    0 10 range 
+        (2 *) mapp 
     print
 )
