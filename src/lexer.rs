@@ -7,6 +7,7 @@ pub enum TokenKind {
     IntLiteral { value: usize },
     CharLiteral { value: char },
     StringLiteral { value: String },
+    PrimeLiteral { value: String }, //Couldn't think of a better name, is just an identifier preceeded by '
     Plus,
     Minus,
     Star,
@@ -39,7 +40,7 @@ pub enum TokenKind {
     FilterKeyword,
     FoldKeyword,
     ForeachKeyword,
-    CallKeyword,
+    DoKeyword,
     ZipKeyword,
     PickKeyword,
     SliceKeyword,
@@ -50,6 +51,7 @@ pub enum TokenKind {
     CloseParen,
     LetKeyword,
     SetKeyword,
+    CastKeyword,
     IfKeyword,
     PartialKeyword,
     ReturnKeyword,
@@ -206,13 +208,14 @@ impl Lexer {
                     "filter" => TokenKind::FilterKeyword,
                     "fold" => TokenKind::FoldKeyword,
                     "foreach" => TokenKind::ForeachKeyword,
-                    "call" => TokenKind::CallKeyword,
+                    "do" => TokenKind::DoKeyword,
                     "zip" => TokenKind::ZipKeyword,
                     "pick" => TokenKind::PickKeyword,
                     "slice" => TokenKind::SliceKeyword,
                     "split" => TokenKind::SplitKeyword,
                     "let" => TokenKind::LetKeyword,
                     "set" => TokenKind::SetKeyword,
+                    "cast" => TokenKind::CastKeyword,
                     "partial" => TokenKind::PartialKeyword,
                     "if" => TokenKind::IfKeyword,
                     "return" => TokenKind::ReturnKeyword,
@@ -267,21 +270,38 @@ impl Lexer {
             }
             '\'' => {
                 self.col += 1;
-                let char_literal = line[self.col] as char;
-                (
-                    Token {
-                        kind: TokenKind::CharLiteral {
-                            value: char_literal,
+                let (text, bytes_read) = self.take_while(line, |c| c.is_alphabetic())?;
+                if bytes_read == 1 && line[self.col + 1] as char == '\'' {
+                    (
+                        Token {
+                            kind: TokenKind::CharLiteral {
+                                value: text.chars().nth(0).unwrap(),
+                            },
+                            text: text.to_string(),
+                            loc: Loc {
+                                path: self.path.clone(),
+                                row: self.line + 1,
+                                col: self.col,
+                            },
                         },
-                        text: char_literal.to_string(),
-                        loc: Loc {
-                            path: self.path.clone(),
-                            row: self.line + 1,
-                            col: self.col + 1,
+                        2,
+                    )
+                } else {
+                    (
+                        Token {
+                            kind: TokenKind::PrimeLiteral {
+                                value: text.clone(),
+                            },
+                            text: text.to_string(),
+                            loc: Loc {
+                                path: self.path.clone(),
+                                row: self.line + 1,
+                                col: self.col,
+                            },
                         },
-                    },
-                    1,
-                )
+                        bytes_read,
+                    )
+                }
             }
             _ => {
                 return Err(Diagnostic {

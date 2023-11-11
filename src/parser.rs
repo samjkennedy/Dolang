@@ -56,13 +56,14 @@ pub enum OperationKind {
     Filter,
     Fold,
     Foreach,
-    Call,
+    Do,
     Range,
     Zip,
     Pick,
     Slice,
     Split,
     Partial,
+    Cast,
     If,
     Return,
     Args,
@@ -243,6 +244,10 @@ impl Parser {
                 kind: OperationKind::Partial,
                 loc: next.loc.clone(),
             }),
+            TokenKind::CastKeyword => Ok(Operation {
+                kind: OperationKind::Cast,
+                loc: next.loc.clone(),
+            }),
             TokenKind::ConsKeyword => Ok(Operation {
                 kind: OperationKind::Cons,
                 loc: next.loc.clone(),
@@ -271,8 +276,8 @@ impl Parser {
                 kind: OperationKind::Foreach,
                 loc: next.loc.clone(),
             }),
-            TokenKind::CallKeyword => Ok(Operation {
-                kind: OperationKind::Call,
+            TokenKind::DoKeyword => Ok(Operation {
+                kind: OperationKind::Do,
                 loc: next.loc.clone(),
             }),
             TokenKind::RangeKeyword => Ok(Operation {
@@ -422,6 +427,7 @@ impl Parser {
             | TokenKind::Whitespace
             | TokenKind::Arrow
             | TokenKind::Colon
+            | TokenKind::PrimeLiteral { .. }
             | TokenKind::EOF => Err(Diagnostic {
                 severity: Severity::Error,
                 loc: next.loc.clone(),
@@ -433,7 +439,7 @@ impl Parser {
 
     fn parse_type_expression(&mut self) -> Result<TypeExpression, Diagnostic> {
         let tok = &self.tokens[self.cursor].clone();
-        match tok.kind {
+        match &tok.kind {
             TokenKind::Identifier { .. } => {
                 if self.cursor + 1 < self.tokens.len()
                     && &self.tokens[self.cursor + 1].kind == &TokenKind::Colon
@@ -476,7 +482,7 @@ impl Parser {
             TokenKind::IntLiteral { value } => {
                 let type_expression = TypeExpression {
                     kind: TypeExpressionKind::Pattern {
-                        kind: TypePatternKind::Literal { value },
+                        kind: TypePatternKind::Literal { value: *value },
                     },
                     loc: tok.loc.clone(),
                 };
@@ -511,7 +517,7 @@ impl Parser {
                     loc: tok.loc.clone(),
                 });
             }
-            TokenKind::CharLiteral { value } => {
+            TokenKind::PrimeLiteral { value } => {
                 let type_expression = TypeExpression {
                     kind: TypeExpressionKind::Generic {
                         identifier: value.to_string(),
@@ -545,6 +551,7 @@ impl Parser {
                 value: value.to_string(),
             }),
             TokenKind::OpenSquare => self.parse_array(),
+            TokenKind::OpenParen => self.parse_seq(),
             _ => Err(Diagnostic {
                 severity: Severity::Error,
                 loc: next.loc.clone(),

@@ -23,6 +23,9 @@ pub enum TypeKind {
     Generic {
         id: String,
     },
+    Type {
+        kind: Box<TypeKind>,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -58,6 +61,7 @@ impl fmt::Display for TypeKind {
                 return write!(f, "fn [{}] -> [{}]", ins_list, outs_list);
             }
             TypeKind::Generic { id } => write!(f, "<{}>", id),
+            TypeKind::Type { kind } => write!(f, "type<{}>", kind),
         }
     }
 }
@@ -73,10 +77,11 @@ pub struct CheckedOperation {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct CheckedFunction {
     pub name: String,
+    //bindings
     ins: Vec<TypeToken>,
     outs: Vec<TypeToken>,
     pub body: Vec<CheckedOperation>,
-    pub base_cases: Vec<BaseCase>, //TODO: This is hella wonkwards
+    pub base_cases: Vec<BaseCase>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -108,6 +113,7 @@ pub enum CheckedOperand {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CheckedOpKind {
+    Nop,
     Push {
         operand: CheckedOperand,
     },
@@ -155,13 +161,14 @@ pub enum CheckedOpKind {
     Filter,
     Fold,
     Foreach,
-    Call,
+    Do,
     Range,
     Zip,
     Pick,
     Slice,
     Split,
     Partial,
+    Cast,
     If,
     Return,
     Args,
@@ -437,40 +444,41 @@ impl TypeChecker {
                     let checked_body = function_type_checker.check_program(&body)?;
 
                     let end_type_stack = function_type_checker.type_stack.clone();
+
                     for output_type in outputs.clone().into_iter().rev() {
                         function_type_checker
                             .expect_type(&output_type.kind, output_type.introduced_at)?;
                     }
 
-                    if function_type_checker.type_stack != outputs {
-                        return Err(Diagnostic {
-                            severity: Severity::Error,
-                            loc: op.loc.clone(),
-                            message: format!(
-                                "Type stack at the end of `{}` does not match signature `[{}] -> [{}]`",
-                                function.name,
-                                inputs
-                                    .into_iter()
-                                    .map(|s| s.kind.to_string())
-                                    .collect::<Vec<String>>()
-                                    .join(" "),
-                                outputs
-                                    .into_iter()
-                                    .map(|s| s.kind.to_string())
-                                    .collect::<Vec<String>>()
-                                    .join(" "),
-                            ),
-                            hint: Some(format!(
-                                "Type stack at the end of execution was:\n\t{}",
-                                end_type_stack
-                                    .into_iter()
-                                    .rev()
-                                    .map(|s| s.to_string())
-                                    .collect::<Vec<String>>()
-                                    .join("\n\t")
-                            )),
-                        });
-                    }
+                    // if function_type_checker.type_stack.len() > 0 {
+                    //     return Err(Diagnostic {
+                    //         severity: Severity::Error,
+                    //         loc: op.loc.clone(),
+                    //         message: format!(
+                    //             "Type stack at the end of `{}` does not match signature `[{}] -> [{}]`",
+                    //             function.name,
+                    //             inputs
+                    //                 .into_iter()
+                    //                 .map(|s| s.kind.to_string())
+                    //                 .collect::<Vec<String>>()
+                    //                 .join(" "),
+                    //             outputs
+                    //                 .into_iter()
+                    //                 .map(|s| s.kind.to_string())
+                    //                 .collect::<Vec<String>>()
+                    //                 .join(" "),
+                    //         ),
+                    //         hint: Some(format!(
+                    //             "Type stack at the end of execution was:\n\t{}",
+                    //             end_type_stack
+                    //                 .into_iter()
+                    //                 .rev()
+                    //                 .map(|s| s.to_string())
+                    //                 .collect::<Vec<String>>()
+                    //                 .join("\n\t")
+                    //         )),
+                    //     });
+                    // }
 
                     let base_cases: Vec<BaseCase> = match self.base_cases.get(&function.name) {
                         Some(base_cases) => base_cases.to_vec(),
@@ -576,6 +584,28 @@ impl TypeChecker {
                         outs: vec![variable.kind.clone()],
                     });
                 }
+                if let Ok(ty) = self.get_type(
+                    &TypeExpression {
+                        kind: TypeExpressionKind::Identifier {
+                            text: name.to_string(),
+                        },
+                        loc: op.loc.clone(),
+                    },
+                    &mut self.type_stack.clone(),
+                ) {
+                    self.type_stack.push(TypeToken {
+                        kind: TypeKind::Type {
+                            kind: Box::new(ty.kind),
+                        },
+                        introduced_at: op.loc.clone(),
+                    });
+                    return Ok(CheckedOperation {
+                        kind: CheckedOpKind::Nop,
+                        loc: op.loc.clone(),
+                        ins: vec![],
+                        outs: vec![],
+                    });
+                }
                 if self.functions.contains_key(name) {
                     let function = self.functions.get(name).unwrap();
 
@@ -634,7 +664,7 @@ impl TypeChecker {
                 let t = self.next_generic();
 
                 Ok(CheckedOperation {
-                    kind: CheckedOpKind::Map,
+                    kind: CheckedOpKind::Filter,
                     loc: op.loc.clone(),
                     ins: vec![
                         TypeKind::Function {
@@ -673,7 +703,7 @@ impl TypeChecker {
                 let u = self.next_generic();
 
                 Ok(CheckedOperation {
-                    kind: CheckedOpKind::Map,
+                    kind: CheckedOpKind::Fold,
                     loc: op.loc.clone(),
                     ins: vec![
                         TypeKind::Function {
@@ -752,6 +782,21 @@ impl TypeChecker {
                     el_type: Box::new(TypeKind::Char),
                 }],
             }),
+            OperationKind::Cast => {
+                let t = self.next_generic();
+                let u = self.next_generic();
+                return Ok(CheckedOperation {
+                    kind: CheckedOpKind::Cast,
+                    loc: op.loc.clone(),
+                    ins: vec![
+                        TypeKind::Type {
+                            kind: Box::new(u.clone()),
+                        },
+                        t,
+                    ],
+                    outs: vec![u],
+                });
+            }
             OperationKind::Partial => {
                 //peek behind at the function before
                 //TODO: This doesn't work in a sequence context, need a varargs function type fn('a.. -> 'b..)
@@ -774,9 +819,14 @@ impl TypeChecker {
                             hint: None,
                         });
                     }
-                    let value = &self.type_stack[self.type_stack.len() - 2].kind.clone();
+                    let value = &self.type_stack[self.type_stack.len() - 2].clone();
                     if ins.len() > 0 {
-                        self.types_equal(&ins[0].clone(), &value.clone(), op.loc.clone())?;
+                        self.types_equal(
+                            &ins[0].clone(),
+                            &value.kind.clone(),
+                            op.loc.clone(),
+                            value.introduced_at.clone(),
+                        )?;
                         return Ok(CheckedOperation {
                             kind: CheckedOpKind::Len,
                             loc: op.loc.clone(),
@@ -785,7 +835,7 @@ impl TypeChecker {
                                     ins: ins.to_vec(),
                                     outs: outs.to_vec(),
                                 },
-                                value.clone(),
+                                value.kind.clone(),
                             ],
                             outs: vec![TypeKind::Function {
                                 ins: ins[1..].to_vec(),
@@ -957,7 +1007,7 @@ impl TypeChecker {
                     outs: vec![t],
                 })
             }
-            OperationKind::Call => {
+            OperationKind::Do => {
                 //TODO: This prevents calls from being type checked inside lambdas, really it needs a fn ('a.. -> 'b..) varargs type
                 //peek behind at the function before
                 if self.type_stack.is_empty() {
@@ -976,7 +1026,7 @@ impl TypeChecker {
                     });
                     inputs.append(&mut ins);
                     return Ok(CheckedOperation {
-                        kind: CheckedOpKind::Call,
+                        kind: CheckedOpKind::Do,
                         loc: op.loc.clone(),
                         ins: inputs,
                         outs,
@@ -1021,7 +1071,7 @@ impl TypeChecker {
                 if let Operand::Seq { ops } = &function.body {
                     let checked_body = function_type_checker.check_program(ops)?;
 
-                    let end_type_stack = function_type_checker.type_stack.clone();
+                    //let end_type_stack = function_type_checker.type_stack.clone();
                     for output_type in outputs.clone().into_iter().rev() {
                         function_type_checker
                             .expect_type(&output_type.kind, output_type.introduced_at)?;
@@ -1224,7 +1274,12 @@ impl TypeChecker {
     fn expect_type(&mut self, expected: &TypeKind, loc: Loc) -> Result<TypeToken, Diagnostic> {
         match self.type_stack.pop() {
             Some(type_token) => {
-                self.types_equal(expected, &type_token.kind, loc)?;
+                self.types_equal(
+                    expected,
+                    &type_token.kind,
+                    loc,
+                    type_token.introduced_at.clone(),
+                )?;
                 return Ok(type_token);
             }
             None => {
@@ -1243,6 +1298,7 @@ impl TypeChecker {
         left: &TypeKind,
         right: &TypeKind,
         loc: Loc,
+        expected_loc: Loc,
     ) -> Result<(), Diagnostic> {
         match (left, right) {
             (TypeKind::Generic { id: left_id }, TypeKind::Generic { id: right_id }) => {
@@ -1252,6 +1308,7 @@ impl TypeChecker {
                             &left_erasure.clone(),
                             &right_erasure.clone(),
                             loc,
+                            expected_loc,
                         );
                     }
                     _ => {
@@ -1283,17 +1340,24 @@ impl TypeChecker {
                             "Args length mismatch. Expected `{}` but top of type stack was `{}`",
                             left, right
                         ),
-                        hint: Some(format!(
-                            "{} introduced at {}", //TODO Take actual as a TypeToken and use its loc here
-                            right, loc
-                        )),
+                        hint: Some(format!("{} introduced at {}", right, expected_loc)),
                     });
                 }
                 for i in 0..left_ins.len() {
-                    self.types_equal(&left_ins[i], &right_ins[i], loc.clone())?;
+                    self.types_equal(
+                        &left_ins[i],
+                        &right_ins[i],
+                        loc.clone(),
+                        expected_loc.clone(),
+                    )?;
                 }
                 for i in 0..left_outs.len() {
-                    self.types_equal(&left_outs[i], &right_outs[i], loc.clone())?;
+                    self.types_equal(
+                        &left_outs[i],
+                        &right_outs[i],
+                        loc.clone(),
+                        expected_loc.clone(),
+                    )?;
                 }
                 return Ok(());
             }
@@ -1305,14 +1369,18 @@ impl TypeChecker {
                     el_type: right_el_type,
                 },
             ) => {
-                self.types_equal(left_el_type, right_el_type, loc)?;
+                self.types_equal(left_el_type, right_el_type, loc, expected_loc)?;
+                return Ok(());
+            }
+            (TypeKind::Type { kind: left_type }, TypeKind::Type { kind: right_type }) => {
+                self.types_equal(left_type, right_type, loc, expected_loc)?;
                 return Ok(());
             }
             _ => {
                 if let TypeKind::Generic { id } = left {
                     match self.generics.get(id) {
                         Some(type_kind) => {
-                            return self.types_equal(&type_kind.clone(), right, loc);
+                            return self.types_equal(&type_kind.clone(), right, loc, expected_loc);
                         }
                         None => {
                             self.generics.insert(id.clone(), right.clone());
@@ -1323,7 +1391,7 @@ impl TypeChecker {
                 if let TypeKind::Generic { id } = right {
                     match self.generics.get(id) {
                         Some(type_kind) => {
-                            return self.types_equal(left, &type_kind.clone(), loc);
+                            return self.types_equal(left, &type_kind.clone(), loc, expected_loc);
                         }
                         None => {
                             self.generics.insert(id.clone(), left.clone());
@@ -1332,6 +1400,7 @@ impl TypeChecker {
                     }
                 }
                 if left != right {
+                    //TODO: Should this method even be doing the erroring or should the caller?
                     return Err(Diagnostic {
                         severity: Severity::Error,
                         loc: loc.clone(),
@@ -1339,10 +1408,7 @@ impl TypeChecker {
                             "Expected `{}` but top of type stack was `{}`",
                             left, right
                         ),
-                        hint: Some(format!(
-                            "{} introduced at {}", //TODO Take actual as a TypeToken and use its loc here
-                            right, loc
-                        )),
+                        hint: Some(format!("{} introduced at {}", right, expected_loc)),
                     });
                 }
             }
@@ -1405,6 +1471,7 @@ impl TypeChecker {
                                     &inferred_outs[inferred_outs.len() - 1],
                                     &input,
                                     op.loc.clone(),
+                                    op.loc.clone(),
                                 )
                                 .is_ok()
                         {
@@ -1415,6 +1482,7 @@ impl TypeChecker {
                             sub_type_checker.types_equal(
                                 &input,
                                 &inferred_outs.pop().unwrap(),
+                                op.loc.clone(),
                                 op.loc.clone(),
                             )?;
                         }
