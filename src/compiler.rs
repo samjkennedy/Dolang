@@ -702,6 +702,7 @@ impl Compiler {
                 write!(self.out_file, "{{\n")?;
                 for name in names.into_iter() {
                     self.bindings.push(name.to_string());
+                    self.out_file.write(b"return_stack[rsp++] = pop();\n")?;
                 }
                 for op in body {
                     self.emit(&op.kind)?;
