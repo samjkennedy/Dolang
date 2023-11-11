@@ -9,7 +9,7 @@ let main -> (
         (2 % 0 =) filter
         (print) foreach
 
-    [[1 2] [3 4 5]]
-        [] (concat) fold
+    [1 2 3 4 5]
+        0 (+) fold
         print
 )

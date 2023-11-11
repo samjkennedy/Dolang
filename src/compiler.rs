@@ -405,6 +405,7 @@ impl Compiler {
 
     fn emit(&mut self, op_kind: &CheckedOpKind) -> io::Result<()> {
         match op_kind {
+            CheckedOpKind::Nop => {}
             CheckedOpKind::Push { operand } => self.emit_push_operand(operand)?,
             CheckedOpKind::Pop => {
                 self.out_file.write(b"pop();\n")?;
@@ -573,7 +574,7 @@ impl Compiler {
             CheckedOpKind::Partial => {
                 self.out_file.write(b"    partial();\n")?;
             }
-            CheckedOpKind::Call => {
+            CheckedOpKind::Do => {
                 self.out_file.write(b"    {\n")?;
                 self.out_file.write(b"    Value lambda = pop();\n")?;
                 self.out_file
@@ -700,10 +701,6 @@ impl Compiler {
             CheckedOpKind::Binding { names, body } => {
                 write!(self.out_file, "{{\n")?;
                 for name in names.into_iter() {
-                    write!(self.out_file, "Value {} = pop();\n", name)?;
-
-                    write!(self.out_file, "    return_stack[rsp] = {};\n", name)?;
-                    self.out_file.write(b"    rsp += 1;\n")?;
                     self.bindings.push(name.to_string());
                 }
                 for op in body {
@@ -721,6 +718,9 @@ impl Compiler {
                     "push(return_stack[{}]);\n",
                     self.bindings.iter().position(|r| r == name).unwrap()
                 )?;
+            }
+            CheckedOpKind::Cast => {
+                //todo actually reinterpret the bytes
             }
             _ => todo!("{:?}", op_kind),
         }
@@ -805,18 +805,6 @@ impl Compiler {
         Ok(())
     }
 
-    //TODO maybe just declare at the start with #define
-    fn get_type_tag(operand: &Operand) -> usize {
-        match operand {
-            Operand::Bool { value } => 0,
-            Operand::Int { value } => 1,
-            Operand::Char { value } => 2,
-            Operand::Array { values } => 3,
-            Operand::Seq { ops } => 4,
-            Operand::String { value } => 3,
-        }
-    }
-
     fn predefine_lambdas(
         &mut self,
         ops: &Vec<CheckedOperation>,
@@ -824,31 +812,51 @@ impl Compiler {
     ) -> io::Result<()> {
         for op in ops {
             if let CheckedOpKind::Push { operand } = &op.kind {
-                if let CheckedOperand::Seq { ops: lambda } = operand {
-                    self.predefine_lambdas(lambda, &bindings)?;
-                    write!(
-                        self.out_file,
-                        "void lambda_{}() {{\n",
-                        self.next_lambda_label
-                    )?;
-                    for binding in bindings.into_iter().rev() {
-                        write!(self.out_file, "Value {} = pop();\n", binding)?;
+                match operand {
+                    CheckedOperand::Array { values } => {
+                        for value in values {
+                            match value {
+                                CheckedOperand::Array { .. } => todo!(),
+                                CheckedOperand::Seq { ops } => {
+                                    self.predefine_lambdas(ops, bindings)?;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
-                    if !self.lambdas.contains_key(&operand) {
-                        self.lambdas.insert(
-                            operand.clone(),
-                            format!("lambda_{}", self.next_lambda_label),
-                        );
+                    CheckedOperand::Seq { ops: lambda } => {
+                        self.predefine_lambdas(lambda, &bindings)?;
+                        write!(
+                            self.out_file,
+                            "void lambda_{}() {{\n",
+                            self.next_lambda_label
+                        )?;
+                        for binding in bindings.into_iter().rev() {
+                            write!(self.out_file, "Value {} = pop();\n", binding)?;
+                        }
+                        if !self.lambdas.contains_key(&operand) {
+                            self.lambdas.insert(
+                                operand.clone(),
+                                format!("lambda_{}", self.next_lambda_label),
+                            );
+                        }
+                        self.next_lambda_label += 1;
+                        for lambda_op in lambda {
+                            self.emit(&lambda_op.kind)?;
+                        }
+                        self.out_file.write(b"}\n")?;
                     }
-                    self.next_lambda_label += 1;
-                    for lambda_op in lambda {
-                        self.emit(&lambda_op.kind)?;
-                    }
-                    self.out_file.write(b"}\n")?;
+                    _ => {}
                 }
             }
             if let CheckedOpKind::Binding { names, body } = &op.kind {
-                self.predefine_lambdas(&body, names)?;
+                for name in names.into_iter() {
+                    self.bindings.push(name.to_string());
+                }
+                self.predefine_lambdas(body, &names)?;
+                for _name in names {
+                    self.bindings.pop();
+                }
             }
         }
         Ok(())
@@ -856,6 +864,7 @@ impl Compiler {
 
     fn emit_function_definition(&mut self, function: &CheckedFunction) -> io::Result<()> {
         let bindings: Vec<String> = vec![];
+        //TODO: if the function has any bindings this will break!
         self.predefine_lambdas(&function.body, &bindings)?;
 
         if function.name == "main" {
@@ -913,7 +922,13 @@ impl Compiler {
                 self.out_file.write(b";\n")?;
                 self.out_file.write(b"    arr.data = data;\n")?;
             }
-            CheckedOperand::Seq { ops } => todo!(),
+            CheckedOperand::Seq { ops } => {
+                let lambda = self
+                    .lambdas
+                    .get(operand)
+                    .expect(&format!("no lambda for operand {:?}", operand));
+                write!(self.out_file, "(Value){{4, (int){}_var}}\n", lambda)?;
+            }
             CheckedOperand::String { value } => todo!(),
         }
         Ok(())

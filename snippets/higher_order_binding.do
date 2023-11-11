@@ -3,10 +3,7 @@ let mapp list: 'a array func: ('a -> 'b) -> 'b array (
 )
 
 let main -> (
-    5 10 range set list (
-        (2 *) set dubble ( 
-            list dubble mapp 
-        )
-    )
+    [true false] (2 *) 
+        mapp 
     print
 )

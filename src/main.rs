@@ -62,7 +62,6 @@ fn main() {
 
     let mut type_checker = TypeChecker::new();
 
-    let mut clean = true;
     match type_checker.check_program(&ops) {
         Ok(checked_ops) => {
             let c_file_name = Path::new(file_path)

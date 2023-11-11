@@ -1,4 +1,4 @@
-let applytwice 'a ('a -> 'a) -> 'a (
+let applytwice 'in ('in -> 'out) -> 'out (
     dup rot swap call
     swap call
 )
